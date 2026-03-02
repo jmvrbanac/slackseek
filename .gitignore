@@ -1,0 +1,26 @@
+# Binaries
+slackseek
+*.exe
+*.test
+*.out
+
+# Build artifacts
+vendor/
+
+# Test artifacts
+*.prof
+
+# Editor
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env*
+
+# Temp
+*.tmp
+*.swp

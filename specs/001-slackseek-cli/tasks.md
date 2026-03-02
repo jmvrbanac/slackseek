@@ -30,11 +30,11 @@ All paths are relative to the repository root `github.com/jmvrbanac/slackseek/`.
 
 **Purpose**: Initialize the Go module, directory layout, entry point, and tooling.
 
-- [ ] T001 Create `go.mod` at repository root with `module github.com/jmvrbanac/slackseek` and `go 1.24`
-- [ ] T002 Create directory structure: `cmd/`, `internal/tokens/`, `internal/slack/`, `internal/output/` (empty `.gitkeep` files are fine)
-- [ ] T003 [P] Create `main.go` at repository root with a minimal `main()` that calls the cobra root command
-- [ ] T004 [P] Create `.golangci.yml` at repository root enabling: `errcheck`, `govet`, `staticcheck`, `revive`, `gocyclo` (max complexity 15), `funlen` (max 40 lines)
-- [ ] T005 [P] Add all project dependencies: `go get github.com/spf13/cobra github.com/syndtr/goleveldb/leveldb modernc.org/sqlite github.com/godbus/dbus/v5 github.com/keybase/go-keychain github.com/slack-go/slack@latest github.com/olekukonko/tablewriter github.com/cenkalti/backoff/v4`
+- [X] T001 Create `go.mod` at repository root with `module github.com/jmvrbanac/slackseek` and `go 1.24`
+- [X] T002 Create directory structure: `cmd/`, `internal/tokens/`, `internal/slack/`, `internal/output/` (empty `.gitkeep` files are fine)
+- [X] T003 [P] Create `main.go` at repository root with a minimal `main()` that calls the cobra root command
+- [X] T004 [P] Create `.golangci.yml` at repository root enabling: `errcheck`, `govet`, `staticcheck`, `revive`, `gocyclo` (max complexity 15), `funlen` (max 40 lines)
+- [X] T005 [P] Add all project dependencies: `go get github.com/spf13/cobra github.com/syndtr/goleveldb/leveldb modernc.org/sqlite github.com/godbus/dbus/v5 github.com/keybase/go-keychain github.com/slack-go/slack@latest github.com/olekukonko/tablewriter github.com/cenkalti/backoff/v4`
 
 ---
 
