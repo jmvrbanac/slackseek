@@ -1,5 +1,3 @@
-// Package tokens extracts Slack authentication credentials from the locally
-// installed Slack desktop application.
 package tokens
 
 // Workspace represents a single authenticated Slack workspace discovered

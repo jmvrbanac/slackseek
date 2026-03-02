@@ -1,0 +1,136 @@
+package tokens
+
+import (
+	"path/filepath"
+	"testing"
+)
+
+// mockPathProvider implements CookiePathProvider using fixed paths.
+type mockPathProvider struct {
+	leveldbPath string
+	cookiePath  string
+}
+
+func (m *mockPathProvider) LevelDBPath() string { return m.leveldbPath }
+func (m *mockPathProvider) CookiePath() string  { return m.cookiePath }
+
+// buildTestLevelDB writes a synthetic LevelDB with one team and returns its dir.
+func buildTestLevelDB(t *testing.T, name, url, token string) string {
+	t.Helper()
+	dir := t.TempDir()
+	cfg := localConfigV2{}
+	cfg.Teams = map[string]struct {
+		Name  string `json:"name"`
+		URL   string `json:"url"`
+		Token string `json:"token"`
+	}{
+		"T00000001": {Name: name, URL: url, Token: token},
+	}
+	writeSyntheticLevelDB(t, dir, cfg)
+	return dir
+}
+
+// buildTestCookieDB writes a synthetic Cookies SQLite file and returns its path.
+func buildTestCookieDB(t *testing.T, dir, cookiePlaintext, password string) string {
+	t.Helper()
+	dbPath := filepath.Join(dir, "Cookies")
+	encrypted := encryptCookie(cookiePlaintext, []byte(password), 1)
+	createSyntheticCookieDB(t, dbPath, encrypted, 20)
+	return dbPath
+}
+
+func TestExtract_SingleWorkspaceHappyPath(t *testing.T) {
+	const (
+		wsName  = "Test Corp"
+		wsURL   = "https://test.slack.com"
+		wsToken = "xoxs-test-token"
+		cookie  = "session-cookie"
+		pw      = "keyring-pw"
+	)
+
+	ldbDir := buildTestLevelDB(t, wsName, wsURL, wsToken)
+	cookieDir := t.TempDir()
+	cookiePath := buildTestCookieDB(t, cookieDir, cookie, pw)
+
+	kr := &mockKR{password: []byte(pw)}
+	pp := &mockPathProvider{leveldbPath: ldbDir, cookiePath: cookiePath}
+
+	result, err := Extract(kr, pp)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Workspaces) != 1 {
+		t.Fatalf("expected 1 workspace, got %d", len(result.Workspaces))
+	}
+	ws := result.Workspaces[0]
+	if ws.Name != wsName {
+		t.Errorf("Name: got %q, want %q", ws.Name, wsName)
+	}
+	if ws.URL != wsURL {
+		t.Errorf("URL: got %q, want %q", ws.URL, wsURL)
+	}
+	if ws.Token != wsToken {
+		t.Errorf("Token: got %q, want %q", ws.Token, wsToken)
+	}
+	if ws.Cookie != cookie {
+		t.Errorf("Cookie: got %q, want %q", ws.Cookie, cookie)
+	}
+	if len(result.Warnings) != 0 {
+		t.Errorf("expected no warnings, got: %v", result.Warnings)
+	}
+}
+
+func TestExtract_MissingCookieIsNonFatal(t *testing.T) {
+	ldbDir := buildTestLevelDB(t, "Corp", "https://corp.slack.com", "xoxs-tok")
+	pp := &mockPathProvider{
+		leveldbPath: ldbDir,
+		cookiePath:  "/nonexistent/path/Cookies",
+	}
+	kr := &mockKR{password: []byte("pw")}
+
+	result, err := Extract(kr, pp)
+	if err != nil {
+		t.Fatalf("cookie failure should be non-fatal, got error: %v", err)
+	}
+	if len(result.Workspaces) != 1 {
+		t.Fatalf("expected 1 workspace even without cookie, got %d", len(result.Workspaces))
+	}
+	if len(result.Warnings) == 0 {
+		t.Error("expected at least one warning for cookie failure")
+	}
+}
+
+func TestExtract_KeyringFailureIsNonFatal(t *testing.T) {
+	ldbDir := buildTestLevelDB(t, "Corp", "https://corp.slack.com", "xoxs-tok")
+	cookieDir := t.TempDir()
+	cookiePath := buildTestCookieDB(t, cookieDir, "cookie", "pw")
+
+	kr := &mockKR{password: []byte("wrong-password")}
+	pp := &mockPathProvider{leveldbPath: ldbDir, cookiePath: cookiePath}
+
+	// Providing wrong password → decryption will produce garbage text but no
+	// error (AES doesn't authenticate). The result depends on implementation
+	// details; what matters is that Extract itself doesn't fail.
+	result, err := Extract(kr, pp)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Workspaces) != 1 {
+		t.Fatalf("expected 1 workspace, got %d", len(result.Workspaces))
+	}
+}
+
+func TestExtract_ZeroWorkspacesReturnsError(t *testing.T) {
+	// Use a nonexistent LevelDB path so ExtractWorkspaceTokens fails →
+	// Extract propagates the error.
+	pp := &mockPathProvider{
+		leveldbPath: t.TempDir() + "/no_ldb_here",
+		cookiePath:  "/nonexistent",
+	}
+	kr := &mockKR{password: []byte("pw")}
+
+	_, err := Extract(kr, pp)
+	if err == nil {
+		t.Fatal("expected error when no workspaces found")
+	}
+}
