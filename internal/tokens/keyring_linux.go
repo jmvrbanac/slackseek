@@ -34,7 +34,7 @@ func (l *LinuxKeyringReader) ReadPassword(_, _ string) ([]byte, error) {
 	// Search all collections for items with the "application" attribute.
 	attributes := map[string]string{"application": "Slack"}
 	var unlocked, locked []dbus.ObjectPath
-	call := ss.Call("org.freedesktop.secrets.Service.SearchItems", 0, attributes)
+	call := ss.Call("org.freedesktop.Secret.Service.SearchItems", 0, attributes)
 	if err := call.Store(&unlocked, &locked); err != nil {
 		return nil, fmt.Errorf(
 			"search D-Bus SecretService for Slack items: %w: "+
@@ -55,7 +55,7 @@ func (l *LinuxKeyringReader) ReadPassword(_, _ string) ([]byte, error) {
 	var sessionPath dbus.ObjectPath
 	var sessionOutput dbus.Variant
 	openCall := ss.Call(
-		"org.freedesktop.secrets.Service.OpenSession", 0,
+		"org.freedesktop.Secret.Service.OpenSession", 0,
 		"plain", dbus.MakeVariant(""),
 	)
 	if err := openCall.Store(&sessionOutput, &sessionPath); err != nil {
@@ -70,7 +70,7 @@ func (l *LinuxKeyringReader) ReadPassword(_, _ string) ([]byte, error) {
 		Value       []byte
 		ContentType string
 	}
-	getCall := item.Call("org.freedesktop.secrets.Item.GetSecret", 0, sessionPath)
+	getCall := item.Call("org.freedesktop.Secret.Item.GetSecret", 0, sessionPath)
 	if err := getCall.Store(&secret); err != nil {
 		return nil, fmt.Errorf("get secret from D-Bus item: %w", err)
 	}

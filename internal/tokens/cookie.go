@@ -121,26 +121,18 @@ func readEncryptedCookie(db *sql.DB) ([]byte, error) {
 }
 
 // decryptAESCBC derives the AES key from password and decrypts the encrypted
-// cookie value, stripping the version prefix and optional HMAC prefix, then
-// removing PKCS7 padding.
+// cookie value, stripping the version prefix, decrypting, then removing the
+// optional domain-hash prefix and PKCS7 padding.
 func decryptAESCBC(encryptedValue, password []byte, iterations, dbVersion int) (string, error) {
 	data := encryptedValue
 
-	// Strip v10/v11 prefix.
+	// Strip the 3-byte v10/v11 version prefix.
 	if bytes.HasPrefix(data, []byte(v11Prefix)) {
 		data = data[3:]
 	} else if bytes.HasPrefix(data, []byte(v10Prefix)) {
 		data = data[3:]
 	} else {
 		return "", fmt.Errorf("unrecognised cookie prefix (not v10/v11)")
-	}
-
-	// Chromium DB version >= 24 adds a 32-byte HMAC after the version prefix.
-	if dbVersion >= chromiumVersion24 {
-		if len(data) < hmacPrefixLen {
-			return "", fmt.Errorf("cookie data too short for version-%d HMAC prefix", dbVersion)
-		}
-		data = data[hmacPrefixLen:]
 	}
 
 	key := pbkdf2.Key(password, []byte(cookieSalt), iterations, aesKeyLen, sha1.New)
@@ -156,6 +148,15 @@ func decryptAESCBC(encryptedValue, password []byte, iterations, dbVersion int) (
 
 	plaintext := make([]byte, len(data))
 	cipher.NewCBCDecrypter(block, iv).CryptBlocks(plaintext, data)
+
+	// Chromium DB version >= 24 prepends a 32-byte SHA-256 domain hash
+	// inside the plaintext (after decryption), not in the ciphertext.
+	if dbVersion >= chromiumVersion24 {
+		if len(plaintext) < hmacPrefixLen {
+			return "", fmt.Errorf("plaintext too short for version-%d domain hash prefix", dbVersion)
+		}
+		plaintext = plaintext[hmacPrefixLen:]
+	}
 
 	unpadded, err := pkcs7Unpad(plaintext)
 	if err != nil {

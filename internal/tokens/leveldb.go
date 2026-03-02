@@ -4,11 +4,13 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"unicode/utf16"
 
 	"github.com/syndtr/goleveldb/leveldb"
-	"github.com/syndtr/goleveldb/leveldb/opt"
 	"github.com/syndtr/goleveldb/leveldb/util"
 )
 
@@ -30,12 +32,62 @@ type localConfigV2Payload struct {
 	} `json:"teams"`
 }
 
-// ExtractWorkspaceTokens opens the Slack LevelDB at leveldbDir in read-only
-// mode and finds the `localConfig_v2` entry.  Read-only mode uses a shared
-// flock, which does not conflict with Chromium's fcntl lock held by a running
-// Slack instance.  Returns an error if no workspaces are discovered.
+// copyDir copies all regular files from src into dst (which must already exist).
+func copyDir(src, dst string) error {
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return fmt.Errorf("read dir %s: %w", src, err)
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if err := copyFile(filepath.Join(src, e.Name()), filepath.Join(dst, e.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", src, err)
+	}
+	defer in.Close()
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return fmt.Errorf("create %s: %w", dst, err)
+	}
+	defer out.Close()
+
+	if _, err := io.Copy(out, in); err != nil {
+		return fmt.Errorf("copy %s → %s: %w", src, dst, err)
+	}
+	return nil
+}
+
+// ExtractWorkspaceTokens copies the Slack LevelDB at leveldbDir to a temp
+// directory and reads the `localConfig_v2` entry from the snapshot.  Copying
+// first avoids race conditions with the running Slack process, which may
+// compact or delete files between the MANIFEST read and the actual file open.
+// Returns an error if no workspaces are discovered.
 func ExtractWorkspaceTokens(leveldbDir string) ([]WorkspaceToken, error) {
-	db, err := leveldb.OpenFile(leveldbDir, &opt.Options{ReadOnly: true})
+	tmpDir, err := os.MkdirTemp("", "slackseek-leveldb-*")
+	if err != nil {
+		return nil, fmt.Errorf("create temp dir: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	if err := copyDir(leveldbDir, tmpDir); err != nil {
+		return nil, fmt.Errorf("snapshot LevelDB: %w", err)
+	}
+
+	// Use RecoverFile so goleveldb rebuilds the manifest from the SSTable
+	// files actually present in the snapshot, ignoring any inconsistency
+	// caused by the race with the live Slack process during the copy.
+	db, err := leveldb.RecoverFile(tmpDir, nil)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"open Slack LevelDB at %s: %w\n"+

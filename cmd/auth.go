@@ -27,7 +27,7 @@ func addAuthCmd(parent *cobra.Command, extractFn func() (tokens.TokenExtractionR
 func newAuthShowCmd(extractFn func() (tokens.TokenExtractionResult, error)) *cobra.Command {
 	return &cobra.Command{
 		Use:   "show",
-		Short: "Display discovered workspace credentials (tokens and cookies are truncated)",
+		Short: "Display discovered workspace credentials",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			result, err := extractFn()
 			if err != nil {
