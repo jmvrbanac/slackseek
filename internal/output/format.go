@@ -119,8 +119,8 @@ func PrintWorkspaces(w io.Writer, format Format, workspaces []tokens.Workspace) 
 			out[i] = workspaceJSON{
 				Name:   ws.Name,
 				URL:    ws.URL,
-				Token:  ws.Token,
-				Cookie: ws.Cookie,
+				Token:  truncate(ws.Token, 12),
+				Cookie: truncate(ws.Cookie, 8),
 			}
 		}
 		return writeJSON(w, out)
@@ -129,7 +129,7 @@ func PrintWorkspaces(w io.Writer, format Format, workspaces []tokens.Workspace) 
 		tbl.Header([]string{"Name", "URL", "Token", "Cookie"})
 		rows := make([][]string, len(workspaces))
 		for i, ws := range workspaces {
-			rows[i] = []string{ws.Name, ws.URL, ws.Token, ws.Cookie}
+			rows[i] = []string{ws.Name, ws.URL, truncate(ws.Token, 12), truncate(ws.Cookie, 8)}
 		}
 		if err := tbl.Bulk(rows); err != nil {
 			return fmt.Errorf("building workspace table: %w", err)
@@ -137,7 +137,7 @@ func PrintWorkspaces(w io.Writer, format Format, workspaces []tokens.Workspace) 
 		return tbl.Render()
 	default: // FormatText
 		for _, ws := range workspaces {
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", ws.Name, ws.URL, ws.Token, ws.Cookie)
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", ws.Name, ws.URL, truncate(ws.Token, 12), truncate(ws.Cookie, 8))
 		}
 		return nil
 	}
