@@ -129,7 +129,7 @@ without panics. US3 is fully functional.
 
 ### Inline mention resolution
 
-- [X] T022 Add `ResolveMentions(text string) string` method to `Resolver` in `internal/slack/resolver.go`. Uses a compiled `regexp.MustCompile(`<@([A-Z0-9]+)>`)` to replace each `<@USERID>` token with `@name` (via `UserDisplayName`). Unresolvable IDs become `@USERID`. Add four unit tests in resolver_test.go: known user replaced, unknown user falls back to `@ID`, no mentions unchanged, multiple mentions in one string.
+- [X] T022 Add `ResolveMentions(text string) string` method to `Resolver` in `internal/slack/resolver.go`. Handles three token types: (1) `<@USERID>` → `@name` (via `UserDisplayName`, falls back to `@USERID`); (2) `<!subteam^ID|label>` → `label`, `<!subteam^ID>` → `@[group]`; (3) `<!here>`, `<!channel>`, `<!everyone>` → `@here`, `@channel`, `@everyone`. Uses three compiled package-level regexps. Tests cover all token types.
 
 - [X] T023 Rename `resolveMessageNames` helper in `internal/output/format.go` to `resolveMessageFields`, adding a `text string` return value. When resolver is non-nil, apply `resolver.ResolveMentions(m.Text)` to produce the resolved text. Update all call sites in `PrintMessages` (table and text format) to use the resolved text.
 

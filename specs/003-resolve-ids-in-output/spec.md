@@ -94,10 +94,12 @@ and UserID/ChannelID fields contain raw IDs (no panic, no extra API call).
 
 - What if a user's real name is empty? Fall back to `display_name`; if that is also empty,
   fall back to the raw user ID.
-- What about `<@USERID>` mention tokens in message text? `Resolver.ResolveMentions` replaces
-  them with `@Real Name`; unresolvable IDs become `@USERID` (angle-bracket form removed).
-- What about `<!subteam^…>` user-group mention tokens? Left as-is; group membership data is
-  not available from the users/channels lists.
+- What about `<@USERID>` mention tokens? `Resolver.ResolveMentions` replaces them with
+  `@Real Name`; unresolvable IDs become `@USERID`.
+- What about `<!subteam^ID|handle>` user-group tokens? The embedded label is used when
+  present (e.g. `@eng-team`); when absent, the token becomes `@[group]`.
+- What about `<!here>` / `<!channel>` / `<!everyone>`? Replaced with `@here`, `@channel`,
+  `@everyone` respectively.
 - What if the channel list does not include a DM/MPIM channel ID? Raw channel ID is shown.
 - What happens when resolution adds latency? Resolution uses only the already-fetched,
   in-memory cached list — it is a map lookup, O(1) per message, with no network calls.
@@ -124,9 +126,11 @@ and UserID/ChannelID fields contain raw IDs (no panic, no extra API call).
   IDs MUST appear in output as before.
 - **FR-008**: Resolution logic MUST be encapsulated in `internal/slack` as a `Resolver` type
   and MUST NOT be duplicated across `cmd/` files.
-- **FR-009**: Inline Slack user mention tokens (`<@USERID>`) in message text MUST be replaced
-  with `@Real Name` in all output formats when a resolver is available. Unresolvable IDs MUST
-  render as `@USERID` (angle-bracket tokens removed). `<!subteam^…>` tokens are left as-is.
+- **FR-009**: Inline Slack mention tokens in message text MUST be resolved in all output
+  formats when a resolver is available:
+  - `<@USERID>` → `@Real Name` (falls back to `@USERID` if unresolved)
+  - `<!subteam^ID|@handle>` → `@handle`; `<!subteam^ID>` → `@[group]`
+  - `<!here>`, `<!channel>`, `<!everyone>` → `@here`, `@channel`, `@everyone`
 
 ### Key Entities
 
@@ -145,5 +149,6 @@ and UserID/ChannelID fields contain raw IDs (no panic, no extra API call).
 - **SC-003**: JSON output includes both `user_id` and `user_display_name` fields.
 - **SC-004**: All existing `go test -race ./...` tests continue to pass unmodified.
 - **SC-005**: `--no-cache` invocations produce raw IDs with no errors or panics.
-- **SC-006**: `<@USERID>` tokens in message text are replaced with `@Real Name` in all
-  output formats; unresolvable tokens appear as `@USERID`.
+- **SC-006**: All Slack mention tokens in message text are resolved in all output formats:
+  `<@USERID>` → `@Real Name`; `<!subteam^…>` → label or `@[group]`;
+  `<!here/channel/everyone>` → `@here/channel/everyone`.

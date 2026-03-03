@@ -115,6 +115,38 @@ func TestResolveMentions_MultipleMentions(t *testing.T) {
 	}
 }
 
+func TestResolveMentions_SubteamWithLabel(t *testing.T) {
+	r := NewResolver(nil, nil)
+	got := r.ResolveMentions("Hey <!subteam^S123|@eng-team>, heads up!")
+	want := "Hey @eng-team, heads up!"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestResolveMentions_SubteamWithoutLabel(t *testing.T) {
+	r := NewResolver(nil, nil)
+	got := r.ResolveMentions("<!subteam^SSRHMQ1NC> please review")
+	want := "@[group] please review"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestResolveMentions_BroadcastTokens(t *testing.T) {
+	r := NewResolver(nil, nil)
+	cases := []struct{ in, want string }{
+		{"<!here> anyone around?", "@here anyone around?"},
+		{"<!channel> important update", "@channel important update"},
+		{"<!everyone> listen up", "@everyone listen up"},
+	}
+	for _, c := range cases {
+		if got := r.ResolveMentions(c.in); got != c.want {
+			t.Errorf("ResolveMentions(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
 // T016: Resolver built from empty slices returns raw IDs (not empty strings).
 
 func TestNewResolver_EmptySlicesReturnNonEmptyFallback(t *testing.T) {
