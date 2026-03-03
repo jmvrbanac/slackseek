@@ -81,7 +81,7 @@ file is created.
 > **NOTE: Write T016 tests FIRST. The production code for US2 is entirely in T010
 > (already part of US1). T016 verifies the flag validation and bypass paths.**
 
-- [ ] T016 [P] [US2] Write tests for cache control flag validation in `cmd/root_test.go`. Cover: `--cache-ttl -1h` returns error containing "must not be negative"; `--refresh-cache --no-cache` together returns error containing "mutually exclusive"; `--cache-ttl 0` is accepted without error; `--no-cache` alone is accepted without error; `--refresh-cache` alone is accepted without error.
+- [X] T016 [P] [US2] Write tests for cache control flag validation in `cmd/root_test.go`. Cover: `--cache-ttl -1h` returns error containing "must not be negative"; `--refresh-cache --no-cache` together returns error containing "mutually exclusive"; `--cache-ttl 0` is accepted without error; `--no-cache` alone is accepted without error; `--refresh-cache` alone is accepted without error.
 
 **Checkpoint**: `go test -race ./cmd/...` passes. Both flags work correctly.
 

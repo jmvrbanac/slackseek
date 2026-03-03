@@ -9,6 +9,49 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// --- Cache flag validation tests (T016) ---
+
+func TestCacheTTLNegativeReturnsError(t *testing.T) {
+	_, _, err := runRoot("--cache-ttl=-1h", "noop")
+	if err == nil {
+		t.Fatal("expected error for negative --cache-ttl, got nil")
+	}
+	if !strings.Contains(err.Error(), "must not be negative") {
+		t.Errorf("expected 'must not be negative' in error, got: %v", err)
+	}
+}
+
+func TestCacheTTLZeroIsAccepted(t *testing.T) {
+	_, _, err := runRoot("--cache-ttl=0", "noop")
+	if err != nil {
+		t.Errorf("expected no error for --cache-ttl 0, got: %v", err)
+	}
+}
+
+func TestRefreshCacheAndNoCacheMutuallyExclusive(t *testing.T) {
+	_, _, err := runRoot("--refresh-cache", "--no-cache", "noop")
+	if err == nil {
+		t.Fatal("expected error for --refresh-cache + --no-cache, got nil")
+	}
+	if !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Errorf("expected 'mutually exclusive' in error, got: %v", err)
+	}
+}
+
+func TestNoCacheAloneIsAccepted(t *testing.T) {
+	_, _, err := runRoot("--no-cache", "noop")
+	if err != nil {
+		t.Errorf("expected no error for --no-cache alone, got: %v", err)
+	}
+}
+
+func TestRefreshCacheAloneIsAccepted(t *testing.T) {
+	_, _, err := runRoot("--refresh-cache", "noop")
+	if err != nil {
+		t.Errorf("expected no error for --refresh-cache alone, got: %v", err)
+	}
+}
+
 // noopCmd is a do-nothing subcommand used to trigger PersistentPreRunE.
 func noopCmd() *cobra.Command {
 	return &cobra.Command{
