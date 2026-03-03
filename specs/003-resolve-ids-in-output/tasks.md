@@ -28,9 +28,9 @@ No project bootstrapping required — this is an existing Go project with all in
 
 **⚠️ CRITICAL**: US1 and US2 cannot start until this phase is complete.
 
-- [X] T001 Write unit tests for `NewResolver`, `UserDisplayName`, and `ChannelName` in `internal/slack/resolver_test.go`. Cover: normal lookup, display name fallback to real name, both names empty falls back to raw ID, channel lookup, unknown channel ID returns raw ID, nil/empty slices produce a functional (non-panicking) resolver.
+- [X] T001 Write unit tests for `NewResolver`, `UserDisplayName`, and `ChannelName` in `internal/slack/resolver_test.go`. Cover: normal lookup, real name preferred over display name, display name fallback when real name empty, both names empty falls back to raw ID, channel lookup, unknown channel ID returns raw ID, nil/empty slices produce a functional (non-panicking) resolver.
 
-- [X] T002 Implement `Resolver` in `internal/slack/resolver.go`. Struct has two `map[string]string` fields (`users`, `channels`). `NewResolver(users []User, channels []Channel) *Resolver` builds maps in O(n); prefers `DisplayName` then `RealName` for users. `UserDisplayName(id string) string` returns name or `id`. `ChannelName(id string) string` returns name or `id`. No errors returned from any method. Run `go test ./internal/slack/...` — all T001 tests must pass.
+- [X] T002 Implement `Resolver` in `internal/slack/resolver.go`. Struct has two `map[string]string` fields (`users`, `channels`). `NewResolver(users []User, channels []Channel) *Resolver` builds maps in O(n); prefers `RealName` then `DisplayName` for users. `UserDisplayName(id string) string` returns name or `id`. `ChannelName(id string) string` returns name or `id`. No errors returned from any method. Run `go test ./internal/slack/...` — all T001 tests must pass.
 
 **Checkpoint**: `go test -race ./internal/slack/...` passes. Resolver is ready for use in output and cmd layers.
 
@@ -121,7 +121,27 @@ without panics. US3 is fully functional.
 
 ---
 
-## Phase 6: Polish & Cross-Cutting Concerns
+## Phase 6: Post-Implementation Refinements
+
+### Name preference correction
+
+- [X] T021 Swap name-resolution preference in `NewResolver`: prefer `RealName` over `DisplayName` (real names like `Alice Smith` are more human-readable than Slack handle-style display names like `alice.smith`). Update resolver_test.go to assert `RealName` is preferred, and update format_test.go fixture expectations accordingly.
+
+### Inline mention resolution
+
+- [X] T022 Add `ResolveMentions(text string) string` method to `Resolver` in `internal/slack/resolver.go`. Uses a compiled `regexp.MustCompile(`<@([A-Z0-9]+)>`)` to replace each `<@USERID>` token with `@name` (via `UserDisplayName`). Unresolvable IDs become `@USERID`. Add four unit tests in resolver_test.go: known user replaced, unknown user falls back to `@ID`, no mentions unchanged, multiple mentions in one string.
+
+- [X] T023 Rename `resolveMessageNames` helper in `internal/output/format.go` to `resolveMessageFields`, adding a `text string` return value. When resolver is non-nil, apply `resolver.ResolveMentions(m.Text)` to produce the resolved text. Update all call sites in `PrintMessages` (table and text format) to use the resolved text.
+
+- [X] T024 Apply `resolver.ResolveMentions` to the `Text` field inside `toMessageJSON` so JSON output also has inline mentions resolved.
+
+- [X] T025 Update `PrintSearchResults` table and text paths to use `resolveMessageFields(sr.Message, resolver)` for consistent mention resolution (replaces the inline `userDisplay`/`sr.Text` pattern with the shared helper).
+
+**Checkpoint**: `go test -race ./...` passes. `golangci-lint run` passes. Messages containing `<@USERID>` tokens show resolved names in all output formats.
+
+---
+
+## Phase 7: Polish & Cross-Cutting Concerns
 
 - [X] T018 Run `golangci-lint run` and fix any linting issues across all modified files (`internal/slack/resolver.go`, `internal/slack/resolver_test.go`, `internal/output/format.go`, `internal/output/format_test.go`, `cmd/history.go`, `cmd/messages.go`, `cmd/search.go`, `cmd/root.go` or `cmd/resolver.go`).
 

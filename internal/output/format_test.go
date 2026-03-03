@@ -216,8 +216,8 @@ func TestPrintMessages_TextUsesDisplayNameWithResolver(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := buf.String()
-	if !strings.Contains(out, "alice") {
-		t.Errorf("expected display name 'alice' in text output, got:\n%s", out)
+	if !strings.Contains(out, "Alice Smith") {
+		t.Errorf("expected real name 'Alice Smith' in text output, got:\n%s", out)
 	}
 	if strings.Contains(out, "U01234567") {
 		t.Errorf("expected raw user ID to be replaced by display name, got:\n%s", out)
@@ -231,8 +231,8 @@ func TestPrintMessages_TableUserColumnContainsDisplayName(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := buf.String()
-	if !strings.Contains(out, "alice") {
-		t.Errorf("expected display name 'alice' in table output, got:\n%s", out)
+	if !strings.Contains(out, "Alice Smith") {
+		t.Errorf("expected real name 'Alice Smith' in table output, got:\n%s", out)
 	}
 }
 
@@ -249,8 +249,8 @@ func TestPrintMessages_JSONIncludesUserDisplayName(t *testing.T) {
 	if _, ok := result[0]["user_display_name"]; !ok {
 		t.Error("expected 'user_display_name' field in message JSON output")
 	}
-	if result[0]["user_display_name"] != "alice" {
-		t.Errorf("expected 'alice', got %v", result[0]["user_display_name"])
+	if result[0]["user_display_name"] != "Alice Smith" {
+		t.Errorf("expected 'Alice Smith', got %v", result[0]["user_display_name"])
 	}
 }
 
@@ -272,8 +272,8 @@ func TestPrintSearchResults_TextUsesDisplayNameWithResolver(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := buf.String()
-	if !strings.Contains(out, "alice") {
-		t.Errorf("expected display name 'alice' in text output, got:\n%s", out)
+	if !strings.Contains(out, "Alice Smith") {
+		t.Errorf("expected real name 'Alice Smith' in text output, got:\n%s", out)
 	}
 }
 
@@ -284,8 +284,8 @@ func TestPrintSearchResults_TableUserColumnContainsDisplayName(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := buf.String()
-	if !strings.Contains(out, "alice") {
-		t.Errorf("expected display name 'alice' in table output, got:\n%s", out)
+	if !strings.Contains(out, "Alice Smith") {
+		t.Errorf("expected real name 'Alice Smith' in table output, got:\n%s", out)
 	}
 }
 
@@ -302,8 +302,8 @@ func TestPrintSearchResults_JSONIncludesUserDisplayName(t *testing.T) {
 	if _, ok := result[0]["user_display_name"]; !ok {
 		t.Error("expected 'user_display_name' field in search result JSON output")
 	}
-	if result[0]["user_display_name"] != "alice" {
-		t.Errorf("expected 'alice', got %v", result[0]["user_display_name"])
+	if result[0]["user_display_name"] != "Alice Smith" {
+		t.Errorf("expected 'Alice Smith', got %v", result[0]["user_display_name"])
 	}
 }
 

@@ -21,23 +21,23 @@ func TestNewResolver_EmptySlicesFallBackToRawID(t *testing.T) {
 	}
 }
 
-func TestNewResolver_UserDisplayNamePreferred(t *testing.T) {
+func TestNewResolver_UserRealNamePreferred(t *testing.T) {
 	users := []User{
 		{ID: "U001", DisplayName: "alice", RealName: "Alice Smith"},
 	}
 	r := NewResolver(users, nil)
-	if got := r.UserDisplayName("U001"); got != "alice" {
-		t.Errorf("expected display name 'alice', got %q", got)
+	if got := r.UserDisplayName("U001"); got != "Alice Smith" {
+		t.Errorf("expected real name 'Alice Smith', got %q", got)
 	}
 }
 
-func TestNewResolver_UserRealNameFallback(t *testing.T) {
+func TestNewResolver_UserDisplayNameFallback(t *testing.T) {
 	users := []User{
-		{ID: "U002", DisplayName: "", RealName: "Bob Jones"},
+		{ID: "U002", DisplayName: "bob", RealName: ""},
 	}
 	r := NewResolver(users, nil)
-	if got := r.UserDisplayName("U002"); got != "Bob Jones" {
-		t.Errorf("expected real name 'Bob Jones', got %q", got)
+	if got := r.UserDisplayName("U002"); got != "bob" {
+		t.Errorf("expected display name 'bob', got %q", got)
 	}
 }
 
@@ -72,6 +72,46 @@ func TestNewResolver_UnknownChannelIDFallsBackToID(t *testing.T) {
 	r := NewResolver(nil, nil)
 	if got := r.ChannelName("C999"); got != "C999" {
 		t.Errorf("expected raw ID 'C999', got %q", got)
+	}
+}
+
+func TestResolveMentions_ReplacesKnownUserID(t *testing.T) {
+	users := []User{{ID: "U001", RealName: "Alice Smith"}}
+	r := NewResolver(users, nil)
+	got := r.ResolveMentions("Hello <@U001>, how are you?")
+	want := "Hello @Alice Smith, how are you?"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestResolveMentions_FallsBackToIDForUnknownUser(t *testing.T) {
+	r := NewResolver(nil, nil)
+	got := r.ResolveMentions("Hello <@U999>!")
+	want := "Hello @U999!"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestResolveMentions_NoMentionsUnchanged(t *testing.T) {
+	r := NewResolver(nil, nil)
+	got := r.ResolveMentions("just plain text")
+	if got != "just plain text" {
+		t.Errorf("got %q, want %q", got, "just plain text")
+	}
+}
+
+func TestResolveMentions_MultipleMentions(t *testing.T) {
+	users := []User{
+		{ID: "U001", RealName: "Alice"},
+		{ID: "U002", RealName: "Bob"},
+	}
+	r := NewResolver(users, nil)
+	got := r.ResolveMentions("<@U001> and <@U002>")
+	want := "@Alice and @Bob"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
 	}
 }
 

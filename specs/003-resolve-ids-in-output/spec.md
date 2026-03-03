@@ -2,36 +2,43 @@
 
 **Feature Branch**: `003-resolve-ids-in-output`
 **Created**: 2026-03-03
-**Status**: Draft
+**Status**: Implemented
 **Input**: User description: "003 I would like for all user IDs and Channel IDs to get resolved in our output."
 
 ## User Scenarios & Testing *(mandatory)*
 
-### User Story 1 — User IDs Replaced by Display Names in Message Output (Priority: P1)
+### User Story 1 — User IDs Replaced by Real Names in Message Output (Priority: P1)
 
 A developer runs `slackseek history #general` and sees messages where the "User" column
-shows a human-readable display name like `alice` instead of the raw Slack user ID
+shows a human-readable real name like `Alice Smith` instead of the raw Slack user ID
 `U01234567`. The same applies to `slackseek messages <user>` and `slackseek search <query>`.
+Inline `<@USERID>` mention tokens inside message text are also resolved to `@Real Name`.
 
 **Why this priority**: Raw Slack user IDs (e.g. `U01234567`) are opaque and useless to
-humans. Every command that shows messages displays these IDs. Resolving them to display
-names is the highest-value change and delivers the core of the feature on its own.
+humans. Every command that shows messages displays these IDs. Resolving them to real names
+is the highest-value change and delivers the core of the feature on its own.
 
 **Independent Test**: Run `slackseek history #general` (with a populated user cache). Verify
-that the User column/field contains a display name (e.g. `alice`) rather than a `U…` ID.
+that the User column/field contains a real name (e.g. `Alice Smith`) rather than a `U…` ID,
+and that `<@USERID>` tokens in the message text are replaced with `@Real Name`.
 
 **Acceptance Scenarios**:
 
 1. **Given** the user cache is populated, **When** `history`, `messages`, or `search` output
    is rendered in text or table format, **Then** the UserID field is replaced by the user's
-   display name (falling back to real name if display name is empty).
+   real name (falling back to display name if real name is empty, then to raw ID).
 
-2. **Given** a user ID is not present in the cache (e.g. a deleted or unknown user), **When**
+2. **Given** a message body contains `<@USERID>` mention tokens, **When** output is rendered
+   and the resolver is available, **Then** each token is replaced by `@Real Name` (falling
+   back to `@USERID` for unresolved IDs).
+
+3. **Given** a user ID is not present in the cache (e.g. a deleted or unknown user), **When**
    output is rendered, **Then** the raw user ID is shown as-is so output is never broken.
 
-3. **Given** the user requests `--format json`, **When** output is rendered, **Then** the JSON
+4. **Given** the user requests `--format json`, **When** output is rendered, **Then** the JSON
    payload includes both the original `user_id` and a new `user_display_name` field so
-   downstream tools still have access to the raw ID.
+   downstream tools still have access to the raw ID. Inline mentions in `text` are also
+   resolved in JSON output.
 
 ---
 
@@ -85,8 +92,12 @@ and UserID/ChannelID fields contain raw IDs (no panic, no extra API call).
 
 ### Edge Cases
 
-- What if a user's display name is empty? Fall back to `real_name`; if that is also empty,
+- What if a user's real name is empty? Fall back to `display_name`; if that is also empty,
   fall back to the raw user ID.
+- What about `<@USERID>` mention tokens in message text? `Resolver.ResolveMentions` replaces
+  them with `@Real Name`; unresolvable IDs become `@USERID` (angle-bracket form removed).
+- What about `<!subteam^…>` user-group mention tokens? Left as-is; group membership data is
+  not available from the users/channels lists.
 - What if the channel list does not include a DM/MPIM channel ID? Raw channel ID is shown.
 - What happens when resolution adds latency? Resolution uses only the already-fetched,
   in-memory cached list — it is a map lookup, O(1) per message, with no network calls.
@@ -98,7 +109,7 @@ and UserID/ChannelID fields contain raw IDs (no panic, no extra API call).
 ### Functional Requirements
 
 - **FR-001**: All text/table output for messages (history, messages, search) MUST display the
-  user's display name (or real name) instead of the raw Slack user ID.
+  user's real name (falling back to display name, then raw ID) instead of the raw Slack user ID.
 - **FR-002**: All text/table output for messages MUST display the channel name instead of the
   raw Slack channel ID when a channel name is not already populated.
 - **FR-003**: JSON output MUST include both the original `user_id` and a new
@@ -113,14 +124,16 @@ and UserID/ChannelID fields contain raw IDs (no panic, no extra API call).
   IDs MUST appear in output as before.
 - **FR-008**: Resolution logic MUST be encapsulated in `internal/slack` as a `Resolver` type
   and MUST NOT be duplicated across `cmd/` files.
+- **FR-009**: Inline Slack user mention tokens (`<@USERID>`) in message text MUST be replaced
+  with `@Real Name` in all output formats when a resolver is available. Unresolvable IDs MUST
+  render as `@USERID` (angle-bracket tokens removed). `<!subteam^…>` tokens are left as-is.
 
 ### Key Entities
 
-- **Resolver**: Holds in-memory lookup maps (userID→displayName, channelID→name) built from
+- **Resolver**: Holds in-memory lookup maps (userID→realName, channelID→name) built from
   the already-fetched `[]User` and `[]Channel` slices. Methods:
-  `UserDisplayName(id string) string` and `ChannelName(id string) string`.
-- **EnrichedMessage**: Extended view of `slack.Message` used by the output layer to carry
-  both the raw IDs and their resolved names (avoids mutating the core `Message` type).
+  `UserDisplayName(id string) string`, `ChannelName(id string) string`, and
+  `ResolveMentions(text string) string`.
 
 ## Success Criteria *(mandatory)*
 
@@ -132,3 +145,5 @@ and UserID/ChannelID fields contain raw IDs (no panic, no extra API call).
 - **SC-003**: JSON output includes both `user_id` and `user_display_name` fields.
 - **SC-004**: All existing `go test -race ./...` tests continue to pass unmodified.
 - **SC-005**: `--no-cache` invocations produce raw IDs with no errors or panics.
+- **SC-006**: `<@USERID>` tokens in message text are replaced with `@Real Name` in all
+  output formats; unresolvable tokens appear as `@USERID`.

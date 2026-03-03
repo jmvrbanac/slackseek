@@ -182,16 +182,19 @@ func PrintChannels(w io.Writer, format Format, channels []slack.Channel) error {
 	}
 }
 
-// resolveMessageNames returns the display name for the message's user and channel,
-// falling back to the raw ID when the resolver is nil or the ID is unknown.
-func resolveMessageNames(m slack.Message, resolver *slack.Resolver) (userDisplay, channelDisplay string) {
+// resolveMessageFields returns resolved user name, channel name, and message
+// text (with inline @mentions replaced), falling back to raw values when the
+// resolver is nil or an ID is unknown.
+func resolveMessageFields(m slack.Message, resolver *slack.Resolver) (userDisplay, channelDisplay, text string) {
 	userDisplay = m.UserID
+	channelDisplay = m.ChannelName
+	text = m.Text
 	if resolver != nil {
 		userDisplay = resolver.UserDisplayName(m.UserID)
-	}
-	channelDisplay = m.ChannelName
-	if channelDisplay == "" && resolver != nil {
-		channelDisplay = resolver.ChannelName(m.ChannelID)
+		if channelDisplay == "" {
+			channelDisplay = resolver.ChannelName(m.ChannelID)
+		}
+		text = resolver.ResolveMentions(text)
 	}
 	return
 }
@@ -213,11 +216,11 @@ func PrintMessages(w io.Writer, format Format, messages []slack.Message, resolve
 		tbl.Header([]string{"Timestamp", "User", "Channel", "Text", "Depth", "Reactions"})
 		rows := make([][]string, len(messages))
 		for i, m := range messages {
-			user, ch := resolveMessageNames(m, resolver)
+			user, ch, text := resolveMessageFields(m, resolver)
 			rows[i] = []string{
 				m.Time.Format(time.RFC3339),
 				user, ch,
-				truncate(m.Text, 80),
+				truncate(text, 80),
 				strconv.Itoa(m.ThreadDepth),
 				formatReactions(m.Reactions),
 			}
@@ -228,8 +231,8 @@ func PrintMessages(w io.Writer, format Format, messages []slack.Message, resolve
 		return tbl.Render()
 	default: // FormatText
 		for _, m := range messages {
-			user, ch := resolveMessageNames(m, resolver)
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", m.Time.Format(time.RFC3339), user, ch, m.Text)
+			user, ch, text := resolveMessageFields(m, resolver)
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", m.Time.Format(time.RFC3339), user, ch, text)
 		}
 		return nil
 	}
@@ -271,15 +274,12 @@ func PrintSearchResults(w io.Writer, format Format, results []slack.SearchResult
 		tbl.Header([]string{"Timestamp", "Channel", "User", "Text", "Permalink"})
 		rows := make([][]string, len(results))
 		for i, sr := range results {
-			userDisplay := sr.UserID
-			if resolver != nil {
-				userDisplay = resolver.UserDisplayName(sr.UserID)
-			}
+			user, _, text := resolveMessageFields(sr.Message, resolver)
 			rows[i] = []string{
 				sr.Time.Format(time.RFC3339),
 				sr.ChannelName,
-				userDisplay,
-				truncate(sr.Text, 80),
+				user,
+				truncate(text, 80),
 				sr.Permalink,
 			}
 		}
@@ -289,11 +289,8 @@ func PrintSearchResults(w io.Writer, format Format, results []slack.SearchResult
 		return tbl.Render()
 	default: // FormatText
 		for _, sr := range results {
-			userDisplay := sr.UserID
-			if resolver != nil {
-				userDisplay = resolver.UserDisplayName(sr.UserID)
-			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", sr.Time.Format(time.RFC3339), sr.ChannelName, userDisplay, sr.Text)
+			user, _, text := resolveMessageFields(sr.Message, resolver)
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", sr.Time.Format(time.RFC3339), sr.ChannelName, user, text)
 		}
 		return nil
 	}
@@ -355,15 +352,19 @@ func toMessageJSON(m slack.Message, resolver *slack.Resolver) messageJSON {
 		userDisplay = resolver.UserDisplayName(m.UserID)
 	}
 	channelName := m.ChannelName
-	if channelName == "" && resolver != nil {
-		channelName = resolver.ChannelName(m.ChannelID)
+	text := m.Text
+	if resolver != nil {
+		if channelName == "" {
+			channelName = resolver.ChannelName(m.ChannelID)
+		}
+		text = resolver.ResolveMentions(text)
 	}
 	return messageJSON{
 		Timestamp:       m.Time.Format(time.RFC3339),
 		SlackTS:         m.Timestamp,
 		UserID:          m.UserID,
 		UserDisplayName: userDisplay,
-		Text:            m.Text,
+		Text:            text,
 		ChannelID:       m.ChannelID,
 		ChannelName:     channelName,
 		ThreadTS:        m.ThreadTS,
