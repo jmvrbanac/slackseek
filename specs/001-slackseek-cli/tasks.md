@@ -149,13 +149,13 @@ All paths are relative to the repository root `github.com/jmvrbanac/slackseek/`.
 
 ### Tests for User Story 4 — Write FIRST, ensure FAIL before implementing
 
-- [ ] T040 [P] [US4] Write unit tests for per-user aggregation in `internal/slack/messages_test.go`: assert `GetUserMessages(ctx, userID, channelID string, dr DateRange, limit int) ([]Message, error)` composes `from:<userID>` query; assert optional `channelID` adds `in:<channelID>` modifier; assert DateRange adds `after:`/`before:` modifiers; assert results are mapped to `[]Message` with ChannelID and ChannelName populated; assert limit is respected
-- [ ] T041 [P] [US4] Write unit tests for `cmd/messages.go` in `cmd/messages_test.go`: assert `<user>` argument required (exit 1 when missing); assert `--channel` flag passes channel ID to `GetUserMessages`; assert unknown user exits with code 1 and actionable error; assert `--format json` output matches json-schema.md messages schema
+- [X] T040 [P] [US4] Write unit tests for per-user aggregation in `internal/slack/messages_test.go`: assert `GetUserMessages(ctx, userID, channelID string, dr DateRange, limit int) ([]Message, error)` composes `from:<userID>` query; assert optional `channelID` adds `in:<channelID>` modifier; assert DateRange adds `after:`/`before:` modifiers; assert results are mapped to `[]Message` with ChannelID and ChannelName populated; assert limit is respected
+- [X] T041 [P] [US4] Write unit tests for `cmd/messages.go` in `cmd/messages_test.go`: assert `<user>` argument required (exit 1 when missing); assert `--channel` flag passes channel ID to `GetUserMessages`; assert unknown user exits with code 1 and actionable error; assert `--format json` output matches json-schema.md messages schema
 
 ### Implementation for User Story 4
 
-- [ ] T042 [US4] Implement per-user message aggregation in `internal/slack/messages.go`: `GetUserMessages(ctx context.Context, userID, channelID string, dr DateRange, limit int) ([]Message, error)` composes search query via `BuildSearchQuery` with the user ID as `from:` filter and optional channel as `in:` filter, delegates to `SearchMessages`, maps `SearchResult` slice to `[]Message` slice
-- [ ] T043 [US4] Implement `cmd/messages.go`: `messages` command with positional `<user>` arg (required); flags `--channel/-c` (string), `--limit/-n` (int, default 1000), `--threads/-T` (bool, default true, included in output column but does not change API call); `RunE` extracts workspace, creates `Client`, resolves user via `ResolveUser`, optionally resolves channel via `ResolveChannel`, calls `GetUserMessages`, writes via `output.PrintMessages`
+- [X] T042 [US4] Implement per-user message aggregation in `internal/slack/messages.go`: `GetUserMessages(ctx context.Context, userID, channelID string, dr DateRange, limit int) ([]Message, error)` composes search query via `BuildSearchQuery` with the user ID as `from:` filter and optional channel as `in:` filter, delegates to `SearchMessages`, maps `SearchResult` slice to `[]Message` slice
+- [X] T043 [US4] Implement `cmd/messages.go`: `messages` command with positional `<user>` arg (required); flags `--channel/-c` (string), `--limit/-n` (int, default 1000), `--threads/-T` (bool, default true, included in output column but does not change API call); `RunE` extracts workspace, creates `Client`, resolves user via `ResolveUser`, optionally resolves channel via `ResolveChannel`, calls `GetUserMessages`, writes via `output.PrintMessages`
 
 **Checkpoint**: `slackseek messages <user>` functional. `go test -race ./...` passes.
 
