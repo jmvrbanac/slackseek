@@ -140,3 +140,28 @@ func TestHistoryCmd_ChannelArgPassedToRunFn(t *testing.T) {
 		t.Errorf("expected channel=C01234567, got %q", capturedChannel)
 	}
 }
+
+// TestHistoryCmd_NilResolverShowsRawID verifies that when buildResolver returns
+// nil (as it always does in tests with no real cache store), raw user IDs are
+// preserved as-is in the output rather than being resolved to display names.
+func TestHistoryCmd_NilResolverShowsRawID(t *testing.T) {
+	const rawUserID = "U99999"
+	msgs := []slack.Message{
+		{
+			Timestamp: "1700000000.000000",
+			UserID:    rawUserID,
+			Text:      "test message",
+		},
+	}
+	runFn := func(_ context.Context, _ tokens.Workspace, _, _ string, _ slack.DateRange, _ int, _ bool) ([]slack.Message, error) {
+		return msgs, nil
+	}
+
+	stdout, _, err := runHistoryCmd(t, defaultHistoryExtractFn, runFn, "history", "general", "--format", "text")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(stdout, rawUserID) {
+		t.Errorf("expected raw user ID %q in output when resolver is nil, got:\n%s", rawUserID, stdout)
+	}
+}

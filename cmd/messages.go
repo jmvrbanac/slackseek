@@ -66,7 +66,8 @@ func runMessagesE(
 			userArg, err,
 		)
 	}
-	return output.PrintMessages(cmd.OutOrStdout(), output.Format(flagFormat), messages)
+	resolver := buildResolver(cmd.Context(), ws)
+	return output.PrintMessages(cmd.OutOrStdout(), output.Format(flagFormat), messages, resolver)
 }
 
 func newMessagesCmd(

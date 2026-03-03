@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/jmvrbanac/slackseek/internal/slack"
@@ -87,6 +88,31 @@ func TestMessagesCmd_UnknownUserExitsWithCode1(t *testing.T) {
 	_, _, err := runMessagesCmd(t, extractFn, runFn, "messages", "nobody")
 	if err == nil {
 		t.Fatal("expected error for unknown user, got nil")
+	}
+}
+
+func TestMessagesCmd_NilResolverShowsRawID(t *testing.T) {
+	const rawUserID = "U999RAW"
+	msgs := []slack.Message{
+		{
+			UserID:      rawUserID,
+			Text:        "raw id test",
+			ChannelName: "general",
+			ChannelID:   "C1",
+		},
+	}
+	runFn := func(_ context.Context, _ tokens.Workspace, _, _ string, _ slack.DateRange, _ int) ([]slack.Message, error) {
+		return msgs, nil
+	}
+
+	// buildResolver will fail to contact the (non-existent) Slack API and return
+	// nil, so output should contain the raw user ID unchanged.
+	stdout, _, err := runMessagesCmd(t, defaultMessagesExtractFn, runFn, "messages", rawUserID, "--format", "text")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(stdout, rawUserID) {
+		t.Errorf("expected raw user ID %q in output, got: %s", rawUserID, stdout)
 	}
 }
 

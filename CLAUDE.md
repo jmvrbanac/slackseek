@@ -5,6 +5,8 @@ Auto-generated from all feature plans. Last updated: 2026-03-02
 ## Active Technologies
 - Go 1.24 (unchanged from feature 001) + stdlib only — `crypto/sha256`, `encoding/json`, `os.UserCacheDir` (002-cache-channels-users)
 - File-based JSON cache at `os.UserCacheDir()/slackseek/{workspaceKey}/` (002-cache-channels-users)
+- Go 1.24 (unchanged) + stdlib only for Resolver; existing `internal/slack`, `internal/cache`, `internal/output` packages (003-resolve-ids-in-output)
+- Uses existing `internal/cache` file-backed store (no new storage) (003-resolve-ids-in-output)
 
 - Go 1.24 (`go 1.24` in `go.mod`; floor set by modernc.org/sqlite) (001-slackseek-cli)
 
@@ -41,6 +43,7 @@ Go 1.24: idiomatic Go only. Functions ≤ 40 lines. Descriptive names. Errors wr
 See `.specify/memory/constitution.md` for full coding principles.
 
 ## Recent Changes
+- 003-resolve-ids-in-output: Added Go 1.24 (unchanged) + stdlib only for Resolver; existing `internal/slack`, `internal/cache`, `internal/output` packages
 - 002-cache-channels-users: Added Go 1.24 (unchanged from feature 001) + stdlib only — `crypto/sha256`, `encoding/json`, `os.UserCacheDir`
 
 - 001-slackseek-cli: Added Go 1.24 (`go 1.24` in `go.mod`; floor set by modernc.org/sqlite)

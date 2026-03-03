@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/jmvrbanac/slackseek/internal/slack"
@@ -122,5 +123,36 @@ func TestSearchCmd_UserAndChannelFlagsPassedToRunFn(t *testing.T) {
 	}
 	if capturedUser != "U123" {
 		t.Errorf("expected user='U123', got %q", capturedUser)
+	}
+}
+
+// TestSearchCmd_NilResolverShowsRawID verifies that when buildResolver returns
+// nil (as it does in the test environment where no real Slack server is
+// available), the raw user ID is preserved as-is in the output.
+func TestSearchCmd_NilResolverShowsRawID(t *testing.T) {
+	const rawUserID = "U999RAW"
+	results := []slack.SearchResult{
+		{
+			Message: slack.Message{
+				UserID:      rawUserID,
+				Text:        "raw id test",
+				ChannelName: "general",
+				ChannelID:   "C1",
+			},
+			Permalink: "https://slack.com/p/raw",
+		},
+	}
+	runFn := func(_ context.Context, _ tokens.Workspace, _, _, _ string, _ slack.DateRange, _ int) ([]slack.SearchResult, error) {
+		return results, nil
+	}
+
+	// buildResolver will return nil in the test environment (no real Slack
+	// server reachable), so output must fall back to the raw user ID.
+	stdout, _, err := runSearchCmd(t, defaultSearchExtractFn, runFn, "search", "test", "--format", "text")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(stdout, rawUserID) {
+		t.Errorf("expected raw user ID %q in output, got: %s", rawUserID, stdout)
 	}
 }

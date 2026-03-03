@@ -146,7 +146,7 @@ func TestPrintChannelsTable(t *testing.T) {
 
 func TestPrintMessagesJSON(t *testing.T) {
 	var buf bytes.Buffer
-	if err := output.PrintMessages(&buf, output.FormatJSON, fixtureMessages()); err != nil {
+	if err := output.PrintMessages(&buf, output.FormatJSON, fixtureMessages(), nil); err != nil {
 		t.Fatal(err)
 	}
 	var result []map[string]interface{}
@@ -197,11 +197,231 @@ func TestPrintUsersTable(t *testing.T) {
 	}
 }
 
+// --- Messages with Resolver (T003) ---
+
+func fixtureResolver() *slack.Resolver {
+	users := []slack.User{
+		{ID: "U01234567", DisplayName: "alice", RealName: "Alice Smith"},
+	}
+	channels := []slack.Channel{
+		{ID: "C01234567", Name: "general"},
+	}
+	return slack.NewResolver(users, channels)
+}
+
+func TestPrintMessages_TextUsesDisplayNameWithResolver(t *testing.T) {
+	var buf bytes.Buffer
+	r := fixtureResolver()
+	if err := output.PrintMessages(&buf, output.FormatText, fixtureMessages(), r); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "alice") {
+		t.Errorf("expected display name 'alice' in text output, got:\n%s", out)
+	}
+	if strings.Contains(out, "U01234567") {
+		t.Errorf("expected raw user ID to be replaced by display name, got:\n%s", out)
+	}
+}
+
+func TestPrintMessages_TableUserColumnContainsDisplayName(t *testing.T) {
+	var buf bytes.Buffer
+	r := fixtureResolver()
+	if err := output.PrintMessages(&buf, output.FormatTable, fixtureMessages(), r); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "alice") {
+		t.Errorf("expected display name 'alice' in table output, got:\n%s", out)
+	}
+}
+
+func TestPrintMessages_JSONIncludesUserDisplayName(t *testing.T) {
+	var buf bytes.Buffer
+	r := fixtureResolver()
+	if err := output.PrintMessages(&buf, output.FormatJSON, fixtureMessages(), r); err != nil {
+		t.Fatal(err)
+	}
+	var result []map[string]interface{}
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("expected valid JSON: %v\noutput: %s", err, buf.String())
+	}
+	if _, ok := result[0]["user_display_name"]; !ok {
+		t.Error("expected 'user_display_name' field in message JSON output")
+	}
+	if result[0]["user_display_name"] != "alice" {
+		t.Errorf("expected 'alice', got %v", result[0]["user_display_name"])
+	}
+}
+
+func TestPrintMessages_NilResolverFallsBackToRawID(t *testing.T) {
+	var buf bytes.Buffer
+	if err := output.PrintMessages(&buf, output.FormatText, fixtureMessages(), nil); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "U01234567") {
+		t.Errorf("expected raw user ID 'U01234567' with nil resolver, got:\n%s", out)
+	}
+}
+
+func TestPrintSearchResults_TextUsesDisplayNameWithResolver(t *testing.T) {
+	var buf bytes.Buffer
+	r := fixtureResolver()
+	if err := output.PrintSearchResults(&buf, output.FormatText, fixtureSearchResults(), r); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "alice") {
+		t.Errorf("expected display name 'alice' in text output, got:\n%s", out)
+	}
+}
+
+func TestPrintSearchResults_TableUserColumnContainsDisplayName(t *testing.T) {
+	var buf bytes.Buffer
+	r := fixtureResolver()
+	if err := output.PrintSearchResults(&buf, output.FormatTable, fixtureSearchResults(), r); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "alice") {
+		t.Errorf("expected display name 'alice' in table output, got:\n%s", out)
+	}
+}
+
+func TestPrintSearchResults_JSONIncludesUserDisplayName(t *testing.T) {
+	var buf bytes.Buffer
+	r := fixtureResolver()
+	if err := output.PrintSearchResults(&buf, output.FormatJSON, fixtureSearchResults(), r); err != nil {
+		t.Fatal(err)
+	}
+	var result []map[string]interface{}
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("expected valid JSON: %v\noutput: %s", err, buf.String())
+	}
+	if _, ok := result[0]["user_display_name"]; !ok {
+		t.Error("expected 'user_display_name' field in search result JSON output")
+	}
+	if result[0]["user_display_name"] != "alice" {
+		t.Errorf("expected 'alice', got %v", result[0]["user_display_name"])
+	}
+}
+
+func TestPrintSearchResults_NilResolverFallsBackToRawID(t *testing.T) {
+	var buf bytes.Buffer
+	if err := output.PrintSearchResults(&buf, output.FormatText, fixtureSearchResults(), nil); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "U01234567") {
+		t.Errorf("expected raw user ID 'U01234567' with nil resolver, got:\n%s", out)
+	}
+}
+
+// --- T016: Resolver built from empty slices returns raw IDs ---
+
+func TestPrintMessages_EmptyResolverReturnsRawIDs(t *testing.T) {
+	r := slack.NewResolver([]slack.User{}, []slack.Channel{})
+	var buf bytes.Buffer
+	if err := output.PrintMessages(&buf, output.FormatText, fixtureMessages(), r); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "U01234567") {
+		t.Errorf("expected raw user ID 'U01234567' with empty resolver, got:\n%s", out)
+	}
+}
+
+// --- Channel Name Resolution (T012) ---
+
+func TestPrintMessages_TextUsesChannelNameWithResolver(t *testing.T) {
+	// fixtureMessages has ChannelID "C01234567" and empty ChannelName.
+	// With resolver, the text output should show "general" not "C01234567".
+	var buf bytes.Buffer
+	r := fixtureResolver()
+	if err := output.PrintMessages(&buf, output.FormatText, fixtureMessages(), r); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "general") {
+		t.Errorf("expected channel name 'general' in text output, got:\n%s", out)
+	}
+}
+
+func TestPrintMessages_TableChannelColumnContainsResolvedName(t *testing.T) {
+	var buf bytes.Buffer
+	r := fixtureResolver()
+	if err := output.PrintMessages(&buf, output.FormatTable, fixtureMessages(), r); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(strings.ToUpper(out), "CHANNEL") {
+		t.Errorf("expected 'CHANNEL' column header in table output, got:\n%s", out)
+	}
+	if !strings.Contains(out, "general") {
+		t.Errorf("expected channel name 'general' in table output, got:\n%s", out)
+	}
+}
+
+func TestPrintMessages_JSONChannelNamePopulatedWithResolver(t *testing.T) {
+	var buf bytes.Buffer
+	r := fixtureResolver()
+	if err := output.PrintMessages(&buf, output.FormatJSON, fixtureMessages(), r); err != nil {
+		t.Fatal(err)
+	}
+	var result []map[string]interface{}
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("expected valid JSON: %v\noutput: %s", err, buf.String())
+	}
+	if result[0]["channel_name"] != "general" {
+		t.Errorf("expected channel_name 'general', got %v", result[0]["channel_name"])
+	}
+}
+
+func TestPrintMessages_ExistingChannelNamePreserved(t *testing.T) {
+	// Message already has ChannelName set; resolver must not overwrite it.
+	msgs := []slack.Message{
+		{
+			UserID:      "U01234567",
+			ChannelID:   "C01234567",
+			ChannelName: "already-resolved",
+			Text:        "hi",
+		},
+	}
+	var buf bytes.Buffer
+	r := fixtureResolver()
+	if err := output.PrintMessages(&buf, output.FormatJSON, msgs, r); err != nil {
+		t.Fatal(err)
+	}
+	var result []map[string]interface{}
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("expected valid JSON: %v\noutput: %s", err, buf.String())
+	}
+	if result[0]["channel_name"] != "already-resolved" {
+		t.Errorf("expected preserved channel name 'already-resolved', got %v", result[0]["channel_name"])
+	}
+}
+
+func TestPrintMessages_NilResolverLeaveChannelNameEmpty(t *testing.T) {
+	// With nil resolver and empty ChannelName, channel_name should not appear (omitempty).
+	var buf bytes.Buffer
+	if err := output.PrintMessages(&buf, output.FormatJSON, fixtureMessages(), nil); err != nil {
+		t.Fatal(err)
+	}
+	var result []map[string]interface{}
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("expected valid JSON: %v\noutput: %s", err, buf.String())
+	}
+	if v, ok := result[0]["channel_name"]; ok && v != "" {
+		t.Errorf("expected channel_name absent or empty with nil resolver, got %v", v)
+	}
+}
+
 // --- SearchResults ---
 
 func TestPrintSearchResultsJSON(t *testing.T) {
 	var buf bytes.Buffer
-	if err := output.PrintSearchResults(&buf, output.FormatJSON, fixtureSearchResults()); err != nil {
+	if err := output.PrintSearchResults(&buf, output.FormatJSON, fixtureSearchResults(), nil); err != nil {
 		t.Fatal(err)
 	}
 	var result []map[string]interface{}

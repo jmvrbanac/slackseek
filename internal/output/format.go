@@ -67,28 +67,30 @@ type reactionJSON struct {
 }
 
 type messageJSON struct {
-	Timestamp   string         `json:"timestamp"`
-	SlackTS     string         `json:"slack_ts"`
-	UserID      string         `json:"user_id"`
-	Text        string         `json:"text"`
-	ChannelID   string         `json:"channel_id"`
-	ChannelName string         `json:"channel_name,omitempty"`
-	ThreadTS    string         `json:"thread_ts"`
-	ThreadDepth int            `json:"thread_depth"`
-	Reactions   []reactionJSON `json:"reactions"`
+	Timestamp       string         `json:"timestamp"`
+	SlackTS         string         `json:"slack_ts"`
+	UserID          string         `json:"user_id"`
+	UserDisplayName string         `json:"user_display_name"`
+	Text            string         `json:"text"`
+	ChannelID       string         `json:"channel_id"`
+	ChannelName     string         `json:"channel_name,omitempty"`
+	ThreadTS        string         `json:"thread_ts"`
+	ThreadDepth     int            `json:"thread_depth"`
+	Reactions       []reactionJSON `json:"reactions"`
 }
 
 type searchResultJSON struct {
-	Timestamp   string         `json:"timestamp"`
-	SlackTS     string         `json:"slack_ts"`
-	UserID      string         `json:"user_id"`
-	Text        string         `json:"text"`
-	ChannelID   string         `json:"channel_id"`
-	ChannelName string         `json:"channel_name,omitempty"`
-	ThreadTS    string         `json:"thread_ts"`
-	ThreadDepth int            `json:"thread_depth"`
-	Reactions   []reactionJSON `json:"reactions"`
-	Permalink   string         `json:"permalink"`
+	Timestamp       string         `json:"timestamp"`
+	SlackTS         string         `json:"slack_ts"`
+	UserID          string         `json:"user_id"`
+	UserDisplayName string         `json:"user_display_name"`
+	Text            string         `json:"text"`
+	ChannelID       string         `json:"channel_id"`
+	ChannelName     string         `json:"channel_name,omitempty"`
+	ThreadTS        string         `json:"thread_ts"`
+	ThreadDepth     int            `json:"thread_depth"`
+	Reactions       []reactionJSON `json:"reactions"`
+	Permalink       string         `json:"permalink"`
 }
 
 type userJSON struct {
@@ -180,25 +182,41 @@ func PrintChannels(w io.Writer, format Format, channels []slack.Channel) error {
 	}
 }
 
+// resolveMessageNames returns the display name for the message's user and channel,
+// falling back to the raw ID when the resolver is nil or the ID is unknown.
+func resolveMessageNames(m slack.Message, resolver *slack.Resolver) (userDisplay, channelDisplay string) {
+	userDisplay = m.UserID
+	if resolver != nil {
+		userDisplay = resolver.UserDisplayName(m.UserID)
+	}
+	channelDisplay = m.ChannelName
+	if channelDisplay == "" && resolver != nil {
+		channelDisplay = resolver.ChannelName(m.ChannelID)
+	}
+	return
+}
+
 // --- PrintMessages ---
 
 // PrintMessages writes message data to w in the requested format.
-func PrintMessages(w io.Writer, format Format, messages []slack.Message) error {
+// resolver is optional; when nil, raw user IDs are used as-is.
+func PrintMessages(w io.Writer, format Format, messages []slack.Message, resolver *slack.Resolver) error {
 	switch format {
 	case FormatJSON:
 		out := make([]messageJSON, len(messages))
 		for i, m := range messages {
-			out[i] = toMessageJSON(m)
+			out[i] = toMessageJSON(m, resolver)
 		}
 		return writeJSON(w, out)
 	case FormatTable:
 		tbl := tablewriter.NewWriter(w)
-		tbl.Header([]string{"Timestamp", "User", "Text", "Depth", "Reactions"})
+		tbl.Header([]string{"Timestamp", "User", "Channel", "Text", "Depth", "Reactions"})
 		rows := make([][]string, len(messages))
 		for i, m := range messages {
+			user, ch := resolveMessageNames(m, resolver)
 			rows[i] = []string{
 				m.Time.Format(time.RFC3339),
-				m.UserID,
+				user, ch,
 				truncate(m.Text, 80),
 				strconv.Itoa(m.ThreadDepth),
 				formatReactions(m.Reactions),
@@ -210,38 +228,42 @@ func PrintMessages(w io.Writer, format Format, messages []slack.Message) error {
 		return tbl.Render()
 	default: // FormatText
 		for _, m := range messages {
-			fmt.Fprintf(w, "%s\t%s\t%s\n", m.Time.Format(time.RFC3339), m.UserID, m.Text)
+			user, ch := resolveMessageNames(m, resolver)
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", m.Time.Format(time.RFC3339), user, ch, m.Text)
 		}
 		return nil
 	}
 }
 
 // toSearchResultJSON converts a SearchResult to its JSON representation.
-func toSearchResultJSON(sr slack.SearchResult) searchResultJSON {
-	mj := toMessageJSON(sr.Message)
+// resolver is optional; when nil, raw user IDs are used as-is.
+func toSearchResultJSON(sr slack.SearchResult, resolver *slack.Resolver) searchResultJSON {
+	mj := toMessageJSON(sr.Message, resolver)
 	return searchResultJSON{
-		Timestamp:   mj.Timestamp,
-		SlackTS:     mj.SlackTS,
-		UserID:      mj.UserID,
-		Text:        mj.Text,
-		ChannelID:   mj.ChannelID,
-		ChannelName: mj.ChannelName,
-		ThreadTS:    mj.ThreadTS,
-		ThreadDepth: mj.ThreadDepth,
-		Reactions:   mj.Reactions,
-		Permalink:   sr.Permalink,
+		Timestamp:       mj.Timestamp,
+		SlackTS:         mj.SlackTS,
+		UserID:          mj.UserID,
+		UserDisplayName: mj.UserDisplayName,
+		Text:            mj.Text,
+		ChannelID:       mj.ChannelID,
+		ChannelName:     mj.ChannelName,
+		ThreadTS:        mj.ThreadTS,
+		ThreadDepth:     mj.ThreadDepth,
+		Reactions:       mj.Reactions,
+		Permalink:       sr.Permalink,
 	}
 }
 
 // --- PrintSearchResults ---
 
 // PrintSearchResults writes search result data to w in the requested format.
-func PrintSearchResults(w io.Writer, format Format, results []slack.SearchResult) error {
+// resolver is optional; when nil, raw user IDs are used as-is.
+func PrintSearchResults(w io.Writer, format Format, results []slack.SearchResult, resolver *slack.Resolver) error {
 	switch format {
 	case FormatJSON:
 		out := make([]searchResultJSON, len(results))
 		for i, sr := range results {
-			out[i] = toSearchResultJSON(sr)
+			out[i] = toSearchResultJSON(sr, resolver)
 		}
 		return writeJSON(w, out)
 	case FormatTable:
@@ -249,10 +271,14 @@ func PrintSearchResults(w io.Writer, format Format, results []slack.SearchResult
 		tbl.Header([]string{"Timestamp", "Channel", "User", "Text", "Permalink"})
 		rows := make([][]string, len(results))
 		for i, sr := range results {
+			userDisplay := sr.UserID
+			if resolver != nil {
+				userDisplay = resolver.UserDisplayName(sr.UserID)
+			}
 			rows[i] = []string{
 				sr.Time.Format(time.RFC3339),
 				sr.ChannelName,
-				sr.UserID,
+				userDisplay,
 				truncate(sr.Text, 80),
 				sr.Permalink,
 			}
@@ -263,7 +289,11 @@ func PrintSearchResults(w io.Writer, format Format, results []slack.SearchResult
 		return tbl.Render()
 	default: // FormatText
 		for _, sr := range results {
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", sr.Time.Format(time.RFC3339), sr.ChannelName, sr.UserID, sr.Text)
+			userDisplay := sr.UserID
+			if resolver != nil {
+				userDisplay = resolver.UserDisplayName(sr.UserID)
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", sr.Time.Format(time.RFC3339), sr.ChannelName, userDisplay, sr.Text)
 		}
 		return nil
 	}
@@ -315,20 +345,29 @@ func PrintUsers(w io.Writer, format Format, users []slack.User) error {
 
 // --- helpers ---
 
-func toMessageJSON(m slack.Message) messageJSON {
+func toMessageJSON(m slack.Message, resolver *slack.Resolver) messageJSON {
 	reactions := make([]reactionJSON, len(m.Reactions))
 	for i, r := range m.Reactions {
 		reactions[i] = reactionJSON{Name: r.Name, Count: r.Count}
 	}
+	userDisplay := ""
+	if resolver != nil {
+		userDisplay = resolver.UserDisplayName(m.UserID)
+	}
+	channelName := m.ChannelName
+	if channelName == "" && resolver != nil {
+		channelName = resolver.ChannelName(m.ChannelID)
+	}
 	return messageJSON{
-		Timestamp:   m.Time.Format(time.RFC3339),
-		SlackTS:     m.Timestamp,
-		UserID:      m.UserID,
-		Text:        m.Text,
-		ChannelID:   m.ChannelID,
-		ChannelName: m.ChannelName,
-		ThreadTS:    m.ThreadTS,
-		ThreadDepth: m.ThreadDepth,
-		Reactions:   reactions,
+		Timestamp:       m.Time.Format(time.RFC3339),
+		SlackTS:         m.Timestamp,
+		UserID:          m.UserID,
+		UserDisplayName: userDisplay,
+		Text:            m.Text,
+		ChannelID:       m.ChannelID,
+		ChannelName:     channelName,
+		ThreadTS:        m.ThreadTS,
+		ThreadDepth:     m.ThreadDepth,
+		Reactions:       reactions,
 	}
 }

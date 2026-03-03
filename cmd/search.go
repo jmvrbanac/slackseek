@@ -66,7 +66,8 @@ func runSearchE(
 			query, err,
 		)
 	}
-	return output.PrintSearchResults(cmd.OutOrStdout(), output.Format(flagFormat), results)
+	resolver := buildResolver(cmd.Context(), ws)
+	return output.PrintSearchResults(cmd.OutOrStdout(), output.Format(flagFormat), results, resolver)
 }
 
 func newSearchCmd(
