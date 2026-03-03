@@ -11,6 +11,9 @@ var subteamPattern = regexp.MustCompile(`<!subteam\^[A-Z0-9]+(?:\|([^>]+))?>`)
 // broadcastPattern matches <!here>, <!channel>, and <!everyone>.
 var broadcastPattern = regexp.MustCompile(`<!(here|channel|everyone)>`)
 
+// urlPattern matches Slack URL tokens: <URL> and <URL|display text>.
+var urlPattern = regexp.MustCompile(`<(https?://[^|>]+)(?:\|([^>]+))?>`)
+
 // Resolver holds pre-built lookup maps for resolving Slack IDs to human-readable names.
 // It is constructed once per command invocation and discarded after output is written.
 type Resolver struct {
@@ -60,11 +63,13 @@ func (r *Resolver) ChannelName(id string) string {
 	return id
 }
 
-// ResolveMentions replaces Slack mention tokens in text with human-readable forms:
-//   - <@USERID>                      → @Real Name (or @USERID if unresolved)
-//   - <!subteam^ID|@handle>          → @handle
-//   - <!subteam^ID>                  → @[group]
+// ResolveMentions replaces Slack markup tokens in text with human-readable forms:
+//   - <@USERID>                        → @Real Name (or @USERID if unresolved)
+//   - <!subteam^ID|@handle>            → @handle
+//   - <!subteam^ID>                    → @[group]
 //   - <!here>, <!channel>, <!everyone> → @here, @channel, @everyone
+//   - <https://url|display text>       → display text
+//   - <https://url>                    → https://url
 func (r *Resolver) ResolveMentions(text string) string {
 	text = mentionPattern.ReplaceAllStringFunc(text, func(match string) string {
 		id := match[2 : len(match)-1] // strip "<@" and ">"
@@ -77,5 +82,12 @@ func (r *Resolver) ResolveMentions(text string) string {
 		return "@[group]"
 	})
 	text = broadcastPattern.ReplaceAllString(text, "@$1")
+	text = urlPattern.ReplaceAllStringFunc(text, func(match string) string {
+		subs := urlPattern.FindStringSubmatch(match)
+		if len(subs) > 2 && subs[2] != "" {
+			return subs[2] // prefer display text when present
+		}
+		return subs[1] // bare URL otherwise
+	})
 	return text
 }

@@ -147,6 +147,24 @@ func TestResolveMentions_BroadcastTokens(t *testing.T) {
 	}
 }
 
+func TestResolveMentions_BareURL(t *testing.T) {
+	r := NewResolver(nil, nil)
+	got := r.ResolveMentions("See <https://example.com/path> for details")
+	want := "See https://example.com/path for details"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestResolveMentions_URLWithDisplayText(t *testing.T) {
+	r := NewResolver(nil, nil)
+	got := r.ResolveMentions("See <https://example.com/path|this ticket> for details")
+	want := "See this ticket for details"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
 // T016: Resolver built from empty slices returns raw IDs (not empty strings).
 
 func TestNewResolver_EmptySlicesReturnNonEmptyFallback(t *testing.T) {
