@@ -189,13 +189,13 @@ Note: `internal/slack/channels.go` (US3) and `internal/slack/users.go` (US2) are
 
 **Purpose**: Integration test scaffolding, linting gate, cross-platform build verification.
 
-- [ ] T048 [P] Add `INTEGRATION=1`-gated integration test scaffold in `internal/tokens/integration_test.go`: `func TestExtractIntegration(t *testing.T)` calls `t.Skip("set INTEGRATION=1 to run")` when env var unset; when set, calls `DefaultExtract()` and asserts at least one workspace returned with non-empty Token
-- [ ] T049 [P] Add `INTEGRATION=1`-gated integration test scaffold in `internal/slack/integration_test.go`: `func TestSearchIntegration(t *testing.T)` skips when env var unset; when set, creates `Client` from env var `SLACK_TOKEN`, calls `SearchMessages` with a benign query, asserts no error returned
-- [ ] T050 Run `go vet ./...` from repository root and fix every reported issue before proceeding
-- [ ] T051 Run `golangci-lint run` from repository root and fix every reported issue before proceeding
-- [ ] T052 [P] Verify `GOOS=linux GOARCH=amd64 go build -o /dev/null ./...` exits 0 (run from repository root)
-- [ ] T053 [P] Verify `GOOS=darwin GOARCH=arm64 go build -o /dev/null ./...` exits 0 (run from repository root)
-- [ ] T054 Run `go test -race ./...` from repository root; confirm zero test failures and zero race condition reports
+- [X] T048 [P] Add `INTEGRATION=1`-gated integration test scaffold in `internal/tokens/integration_test.go`: `func TestExtractIntegration(t *testing.T)` calls `t.Skip("set INTEGRATION=1 to run")` when env var unset; when set, calls `DefaultExtract()` and asserts at least one workspace returned with non-empty Token
+- [X] T049 [P] Add `INTEGRATION=1`-gated integration test scaffold in `internal/slack/integration_test.go`: `func TestSearchIntegration(t *testing.T)` skips when env var unset; when set, creates `Client` from env var `SLACK_TOKEN`, calls `SearchMessages` with a benign query, asserts no error returned
+- [X] T050 Run `go vet ./...` from repository root and fix every reported issue before proceeding
+- [X] T051 Run `golangci-lint run` from repository root and fix every reported issue before proceeding
+- [X] T052 [P] Verify `GOOS=linux GOARCH=amd64 go build -o /dev/null ./...` exits 0 (run from repository root)
+- [X] T053 [P] Verify `GOOS=darwin GOARCH=arm64 go build -o /dev/null ./...` exits 0 (run from repository root)
+- [X] T054 Run `go test -race ./...` from repository root; confirm zero test failures and zero race condition reports
 - [ ] T055 [P] Run the quickstart validation checklist from `specs/001-slackseek-cli/quickstart.md` on a machine with Slack installed and confirm all seven checklist items pass
 
 ---

@@ -216,6 +216,23 @@ func PrintMessages(w io.Writer, format Format, messages []slack.Message) error {
 	}
 }
 
+// toSearchResultJSON converts a SearchResult to its JSON representation.
+func toSearchResultJSON(sr slack.SearchResult) searchResultJSON {
+	mj := toMessageJSON(sr.Message)
+	return searchResultJSON{
+		Timestamp:   mj.Timestamp,
+		SlackTS:     mj.SlackTS,
+		UserID:      mj.UserID,
+		Text:        mj.Text,
+		ChannelID:   mj.ChannelID,
+		ChannelName: mj.ChannelName,
+		ThreadTS:    mj.ThreadTS,
+		ThreadDepth: mj.ThreadDepth,
+		Reactions:   mj.Reactions,
+		Permalink:   sr.Permalink,
+	}
+}
+
 // --- PrintSearchResults ---
 
 // PrintSearchResults writes search result data to w in the requested format.
@@ -224,19 +241,7 @@ func PrintSearchResults(w io.Writer, format Format, results []slack.SearchResult
 	case FormatJSON:
 		out := make([]searchResultJSON, len(results))
 		for i, sr := range results {
-			mj := toMessageJSON(sr.Message)
-			out[i] = searchResultJSON{
-				Timestamp:   mj.Timestamp,
-				SlackTS:     mj.SlackTS,
-				UserID:      mj.UserID,
-				Text:        mj.Text,
-				ChannelID:   mj.ChannelID,
-				ChannelName: mj.ChannelName,
-				ThreadTS:    mj.ThreadTS,
-				ThreadDepth: mj.ThreadDepth,
-				Reactions:   mj.Reactions,
-				Permalink:   sr.Permalink,
-			}
+			out[i] = toSearchResultJSON(sr)
 		}
 		return writeJSON(w, out)
 	case FormatTable:

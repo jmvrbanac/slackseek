@@ -49,12 +49,63 @@ func NewClient(token, cookie string, httpClient *http.Client) *Client {
 		base = httpClient.Transport
 	}
 
-	var transport http.RoundTripper = base
+	transport := base
 	if cookie != "" {
 		transport = &cookieTransport{cookie: cookie, base: base}
 	}
 
 	return &Client{api: slackgo.New(token, slackgo.OptionHTTPClient(&http.Client{Transport: transport}))}
+}
+
+// ctxSleep waits for duration d or until ctx is cancelled.
+func ctxSleep(ctx context.Context, d time.Duration) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(d):
+		return nil
+	}
+}
+
+// retryOnce executes fn once and returns (shouldRetry, err).
+// shouldRetry=true means the caller should loop again (delay already applied).
+// shouldRetry=false with nil err means fn succeeded.
+func (c *Client) retryOnce(ctx context.Context, fn func() error, boff *backoff.ExponentialBackOff, isLastAttempt bool) (bool, error) {
+	err := fn()
+	if err == nil {
+		return false, nil
+	}
+
+	var rateLimited *slackgo.RateLimitedError
+	if errors.As(err, &rateLimited) {
+		if isLastAttempt {
+			return false, fmt.Errorf("rate limited after %d attempts: %w", maxAttempts, err)
+		}
+		if c.onRateLimit != nil {
+			c.onRateLimit(rateLimited.RetryAfter)
+		}
+		if sleepErr := ctxSleep(ctx, rateLimited.RetryAfter); sleepErr != nil {
+			return false, sleepErr
+		}
+		return true, nil
+	}
+
+	var sce slackgo.StatusCodeError
+	if errors.As(err, &sce) && sce.Code >= http.StatusInternalServerError {
+		if isLastAttempt {
+			return false, fmt.Errorf("server error after %d attempts: %w", maxAttempts, err)
+		}
+		wait := boff.NextBackOff()
+		if wait == backoff.Stop {
+			return false, fmt.Errorf("server error: back-off exhausted: %w", err)
+		}
+		if sleepErr := ctxSleep(ctx, wait); sleepErr != nil {
+			return false, sleepErr
+		}
+		return true, nil
+	}
+
+	return false, err
 }
 
 // callWithRetry executes fn and retries on recoverable Slack API errors:
@@ -63,58 +114,19 @@ func NewClient(token, cookie string, httpClient *http.Client) *Client {
 //   - Other errors: returned immediately without retry
 func (c *Client) callWithRetry(ctx context.Context, fn func() error) error {
 	boff := backoff.NewExponentialBackOff()
-	boff.MaxElapsedTime = 0 // disable time-based cap; rely on attempt count only
-
-	var rateLimited *slackgo.RateLimitedError
+	boff.MaxElapsedTime = 0
 
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-
-		err := fn()
-		if err == nil {
+		retry, err := c.retryOnce(ctx, fn, boff, attempt+1 >= maxAttempts)
+		if err != nil {
+			return err
+		}
+		if !retry {
 			return nil
 		}
-
-		isLastAttempt := attempt+1 >= maxAttempts
-
-		// 429: sleep the exact Retry-After duration, then retry.
-		if errors.As(err, &rateLimited) {
-			if isLastAttempt {
-				return fmt.Errorf("rate limited after %d attempts: %w", maxAttempts, err)
-			}
-			if c.onRateLimit != nil {
-				c.onRateLimit(rateLimited.RetryAfter)
-			}
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(rateLimited.RetryAfter):
-			}
-			continue
-		}
-
-		// 5xx: exponential back-off, then retry.
-		var sce slackgo.StatusCodeError
-		if errors.As(err, &sce) && sce.Code >= http.StatusInternalServerError {
-			if isLastAttempt {
-				return fmt.Errorf("server error after %d attempts: %w", maxAttempts, err)
-			}
-			wait := boff.NextBackOff()
-			if wait == backoff.Stop {
-				return fmt.Errorf("server error: back-off exhausted: %w", err)
-			}
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(wait):
-			}
-			continue
-		}
-
-		// Non-retryable error.
-		return err
 	}
 	return nil
 }

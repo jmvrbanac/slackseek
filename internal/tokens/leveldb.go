@@ -68,57 +68,55 @@ func copyFile(src, dst string) error {
 	return nil
 }
 
-// ExtractWorkspaceTokens copies the Slack LevelDB at leveldbDir to a temp
-// directory and reads the `localConfig_v2` entry from the snapshot.  Copying
-// first avoids race conditions with the running Slack process, which may
-// compact or delete files between the MANIFEST read and the actual file open.
-// Returns an error if no workspaces are discovered.
-func ExtractWorkspaceTokens(leveldbDir string) ([]WorkspaceToken, error) {
-	tmpDir, err := os.MkdirTemp("", "slackseek-leveldb-*")
+// snapshotLevelDB copies leveldbDir to a temp directory, opens the snapshot
+// with RecoverFile (tolerates races with the live Slack process), and returns
+// the temp dir path and an open DB handle. On error the temp dir is cleaned up.
+// The caller is responsible for calling os.RemoveAll(tmpDir) and db.Close().
+func snapshotLevelDB(leveldbDir string) (tmpDir string, db *leveldb.DB, err error) {
+	tmpDir, err = os.MkdirTemp("", "slackseek-leveldb-*")
 	if err != nil {
-		return nil, fmt.Errorf("create temp dir: %w", err)
+		return "", nil, fmt.Errorf("create temp dir: %w", err)
 	}
-	defer os.RemoveAll(tmpDir)
-
-	if err := copyDir(leveldbDir, tmpDir); err != nil {
-		return nil, fmt.Errorf("snapshot LevelDB: %w", err)
+	if copyErr := copyDir(leveldbDir, tmpDir); copyErr != nil {
+		os.RemoveAll(tmpDir)
+		return "", nil, fmt.Errorf("snapshot LevelDB: %w", copyErr)
 	}
-
-	// Use RecoverFile so goleveldb rebuilds the manifest from the SSTable
-	// files actually present in the snapshot, ignoring any inconsistency
-	// caused by the race with the live Slack process during the copy.
-	db, err := leveldb.RecoverFile(tmpDir, nil)
+	db, err = leveldb.RecoverFile(tmpDir, nil)
 	if err != nil {
-		return nil, fmt.Errorf(
+		os.RemoveAll(tmpDir)
+		return "", nil, fmt.Errorf(
 			"open Slack LevelDB at %s: %w\n"+
 				"Ensure the Slack desktop application is installed.",
 			leveldbDir, err,
 		)
 	}
-	defer db.Close()
+	return tmpDir, db, nil
+}
 
+// findLocalConfigPayload scans db for the `localConfig_v2` key and returns
+// the parsed payload, or an error when the key is absent or unreadable.
+func findLocalConfigPayload(db *leveldb.DB, leveldbDir string) (*localConfigV2Payload, error) {
 	var payload *localConfigV2Payload
 	iter := db.NewIterator(&util.Range{}, nil)
 	for iter.Next() {
-		key := string(iter.Key())
-		if strings.Contains(key, "localConfig_v2") {
-			raw, err := decodeLocalStorageValue(iter.Value())
-			if err != nil {
-				continue
-			}
-			var p localConfigV2Payload
-			if err := json.Unmarshal(raw, &p); err != nil {
-				continue
-			}
-			payload = &p
-			break
+		if !strings.Contains(string(iter.Key()), "localConfig_v2") {
+			continue
 		}
+		raw, err := decodeLocalStorageValue(iter.Value())
+		if err != nil {
+			continue
+		}
+		var p localConfigV2Payload
+		if err := json.Unmarshal(raw, &p); err != nil {
+			continue
+		}
+		payload = &p
+		break
 	}
 	iter.Release()
 	if err := iter.Error(); err != nil {
 		return nil, fmt.Errorf("iterating LevelDB: %w", err)
 	}
-
 	if payload == nil {
 		return nil, fmt.Errorf(
 			"localConfig_v2 key not found in LevelDB at %s: "+
@@ -126,19 +124,18 @@ func ExtractWorkspaceTokens(leveldbDir string) ([]WorkspaceToken, error) {
 			leveldbDir,
 		)
 	}
+	return payload, nil
+}
 
+// buildWorkspaceList converts a parsed localConfig_v2 payload to WorkspaceTokens.
+func buildWorkspaceList(payload *localConfigV2Payload, leveldbDir string) ([]WorkspaceToken, error) {
 	workspaces := make([]WorkspaceToken, 0, len(payload.Teams))
 	for _, team := range payload.Teams {
 		if team.Token == "" || team.Name == "" {
 			continue
 		}
-		workspaces = append(workspaces, WorkspaceToken{
-			Name:  team.Name,
-			Token: team.Token,
-			URL:   team.URL,
-		})
+		workspaces = append(workspaces, WorkspaceToken{Name: team.Name, Token: team.Token, URL: team.URL})
 	}
-
 	if len(workspaces) == 0 {
 		return nil, fmt.Errorf(
 			"no workspace tokens found in Slack LevelDB at %s: "+
@@ -147,6 +144,25 @@ func ExtractWorkspaceTokens(leveldbDir string) ([]WorkspaceToken, error) {
 		)
 	}
 	return workspaces, nil
+}
+
+// ExtractWorkspaceTokens copies the Slack LevelDB at leveldbDir to a temp
+// directory and reads the `localConfig_v2` entry from the snapshot.  Copying
+// first avoids race conditions with the running Slack process.
+// Returns an error if no workspaces are discovered.
+func ExtractWorkspaceTokens(leveldbDir string) ([]WorkspaceToken, error) {
+	tmpDir, db, err := snapshotLevelDB(leveldbDir)
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(tmpDir)
+	defer db.Close()
+
+	payload, err := findLocalConfigPayload(db, leveldbDir)
+	if err != nil {
+		return nil, err
+	}
+	return buildWorkspaceList(payload, leveldbDir)
 }
 
 // decodeLocalStorageValue decodes a Chromium LevelDB Local Storage value.

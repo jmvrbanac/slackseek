@@ -14,7 +14,7 @@ func noopCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "noop",
 		Short: "no-op for testing",
-		RunE:  func(cmd *cobra.Command, args []string) error { return nil },
+		RunE:  func(_ *cobra.Command, _ []string) error { return nil },
 	}
 }
 

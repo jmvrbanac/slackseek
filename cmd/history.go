@@ -34,6 +34,42 @@ func addHistoryCmd(
 	parent.AddCommand(newHistoryCmd(extractFn, runFn))
 }
 
+func runHistoryE(
+	cmd *cobra.Command,
+	args []string,
+	extractFn func() (tokens.TokenExtractionResult, error),
+	runFn historyRunFunc,
+	threads bool,
+	limit int,
+) error {
+	channel := args[0]
+	result, err := extractFn()
+	if err != nil {
+		return fmt.Errorf(
+			"failed to extract Slack credentials: %w\n"+
+				"Ensure the Slack desktop application is installed and you are logged in.\n"+
+				"Run `slackseek auth show` to diagnose credential extraction.",
+			err,
+		)
+	}
+	ws, err := SelectWorkspace(result.Workspaces, flagWorkspace)
+	if err != nil {
+		return err
+	}
+	for _, w := range result.Warnings {
+		fmt.Fprintln(os.Stderr, "Warning:", w)
+	}
+	messages, err := runFn(cmd.Context(), ws, channel, ws.Name, ParsedDateRange, limit, threads)
+	if err != nil {
+		return fmt.Errorf(
+			"history for channel %q failed: %w\n"+
+				"Check the channel name with `slackseek channels list` or verify your token with `slackseek auth show`.",
+			channel, err,
+		)
+	}
+	return output.PrintMessages(cmd.OutOrStdout(), output.Format(flagFormat), messages)
+}
+
 func newHistoryCmd(
 	extractFn func() (tokens.TokenExtractionResult, error),
 	runFn historyRunFunc,
@@ -42,49 +78,16 @@ func newHistoryCmd(
 		threads bool
 		limit   int
 	)
-
 	cmd := &cobra.Command{
 		Use:   "history <channel>",
 		Short: "Retrieve message history for a channel",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			channel := args[0]
-
-			result, err := extractFn()
-			if err != nil {
-				return fmt.Errorf(
-					"failed to extract Slack credentials: %w\n"+
-						"Ensure the Slack desktop application is installed and you are logged in.\n"+
-						"Run `slackseek auth show` to diagnose credential extraction.",
-					err,
-				)
-			}
-
-			ws, err := SelectWorkspace(result.Workspaces, flagWorkspace)
-			if err != nil {
-				return err
-			}
-
-			for _, w := range result.Warnings {
-				fmt.Fprintln(os.Stderr, "Warning:", w)
-			}
-
-			messages, err := runFn(cmd.Context(), ws, channel, ws.Name, ParsedDateRange, limit, threads)
-			if err != nil {
-				return fmt.Errorf(
-					"history for channel %q failed: %w\n"+
-						"Check the channel name with `slackseek channels list` or verify your token with `slackseek auth show`.",
-					channel, err,
-				)
-			}
-
-			return output.PrintMessages(cmd.OutOrStdout(), output.Format(flagFormat), messages)
+			return runHistoryE(cmd, args, extractFn, runFn, threads, limit)
 		},
 	}
-
 	cmd.Flags().BoolVarP(&threads, "threads", "T", true, "include inline thread replies")
 	cmd.Flags().IntVarP(&limit, "limit", "n", 1000, "maximum number of messages to return (0 = unlimited)")
-
 	return cmd
 }
 

@@ -80,7 +80,7 @@ func TestMessagesCmd_UnknownUserExitsWithCode1(t *testing.T) {
 			},
 		}, nil
 	}
-	runFn := func(_ context.Context, _ tokens.Workspace, userArg, _ string, _ slack.DateRange, _ int) ([]slack.Message, error) {
+	runFn := func(_ context.Context, _ tokens.Workspace, _, _ string, _ slack.DateRange, _ int) ([]slack.Message, error) {
 		return nil, errors.New("user \"nobody\" not found: use `slackseek users list` to see available display names and IDs")
 	}
 

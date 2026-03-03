@@ -46,7 +46,7 @@ func TestBuildSearchQuery_NoDateRange(t *testing.T) {
 
 // mockSearchResponse returns an HTTP 200 with a valid Slack search.messages response body.
 func mockSearchResponse(body string) http.RoundTripper {
-	return roundTripFunc(func(r *http.Request) (*http.Response, error) {
+	return roundTripFunc(func(_ *http.Request) (*http.Response, error) {
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Body:       io.NopCloser(strings.NewReader(body)),

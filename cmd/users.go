@@ -39,6 +39,40 @@ func newUsersCmd(
 	return users
 }
 
+func runUsersListE(
+	cmd *cobra.Command,
+	extractFn func() (tokens.TokenExtractionResult, error),
+	runFn usersRunFunc,
+	includeDeleted, includeBot bool,
+) error {
+	result, err := extractFn()
+	if err != nil {
+		return fmt.Errorf(
+			"failed to extract Slack credentials: %w\n"+
+				"Ensure the Slack desktop application is installed and you are logged in.\n"+
+				"Run `slackseek auth show` to diagnose credential extraction.",
+			err,
+		)
+	}
+	ws, err := SelectWorkspace(result.Workspaces, flagWorkspace)
+	if err != nil {
+		return err
+	}
+	for _, w := range result.Warnings {
+		fmt.Fprintln(os.Stderr, "Warning:", w)
+	}
+	users, err := runFn(cmd.Context(), ws)
+	if err != nil {
+		return fmt.Errorf(
+			"users list failed: %w\n"+
+				"Verify your token with `slackseek auth show`.",
+			err,
+		)
+	}
+	filtered := filterUsers(users, includeDeleted, includeBot)
+	return output.PrintUsers(cmd.OutOrStdout(), output.Format(flagFormat), filtered)
+}
+
 func newUsersListCmd(
 	extractFn func() (tokens.TokenExtractionResult, error),
 	runFn usersRunFunc,
@@ -47,47 +81,15 @@ func newUsersListCmd(
 		includeDeleted bool
 		includeBot     bool
 	)
-
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List workspace users",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := extractFn()
-			if err != nil {
-				return fmt.Errorf(
-					"failed to extract Slack credentials: %w\n"+
-						"Ensure the Slack desktop application is installed and you are logged in.\n"+
-						"Run `slackseek auth show` to diagnose credential extraction.",
-					err,
-				)
-			}
-
-			ws, err := SelectWorkspace(result.Workspaces, flagWorkspace)
-			if err != nil {
-				return err
-			}
-
-			for _, w := range result.Warnings {
-				fmt.Fprintln(os.Stderr, "Warning:", w)
-			}
-
-			users, err := runFn(cmd.Context(), ws)
-			if err != nil {
-				return fmt.Errorf(
-					"users list failed: %w\n"+
-						"Verify your token with `slackseek auth show`.",
-					err,
-				)
-			}
-
-			filtered := filterUsers(users, includeDeleted, includeBot)
-			return output.PrintUsers(cmd.OutOrStdout(), output.Format(flagFormat), filtered)
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runUsersListE(cmd, extractFn, runFn, includeDeleted, includeBot)
 		},
 	}
-
 	cmd.Flags().BoolVar(&includeDeleted, "deleted", false, "include deactivated users")
 	cmd.Flags().BoolVar(&includeBot, "bot", false, "include bot accounts")
-
 	return cmd
 }
 

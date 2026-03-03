@@ -43,6 +43,21 @@ func writeSyntheticLevelDB(t *testing.T, dir string, cfg localConfigV2) {
 	}
 }
 
+// assertWorkspaceTokenInMap asserts that byName contains name with the expected token and URL.
+func assertWorkspaceTokenInMap(t *testing.T, byName map[string]WorkspaceToken, name, wantToken, wantURL string) {
+	t.Helper()
+	tok, ok := byName[name]
+	if !ok {
+		t.Fatalf("expected token for %q", name)
+	}
+	if tok.Token != wantToken {
+		t.Errorf("token for %q: got %q, want %q", name, tok.Token, wantToken)
+	}
+	if tok.URL != wantURL {
+		t.Errorf("URL for %q: got %q, want %q", name, tok.URL, wantURL)
+	}
+}
+
 func TestExtractWorkspaceTokens_HappyPath(t *testing.T) {
 	dir := t.TempDir()
 	cfg := localConfigV2{}
@@ -69,24 +84,8 @@ func TestExtractWorkspaceTokens_HappyPath(t *testing.T) {
 		byName[tok.Name] = tok
 	}
 
-	acme, ok := byName["Acme Corp"]
-	if !ok {
-		t.Fatal("expected token for 'Acme Corp'")
-	}
-	if acme.Token != "xoxs-111-222-333" {
-		t.Errorf("wrong Token: %q", acme.Token)
-	}
-	if acme.URL != "https://acme.slack.com" {
-		t.Errorf("wrong URL: %q", acme.URL)
-	}
-
-	beta, ok := byName["Beta Inc"]
-	if !ok {
-		t.Fatal("expected token for 'Beta Inc'")
-	}
-	if beta.Token != "xoxc-aaa-bbb-ccc" {
-		t.Errorf("wrong Token: %q", beta.Token)
-	}
+	assertWorkspaceTokenInMap(t, byName, "Acme Corp", "xoxs-111-222-333", "https://acme.slack.com")
+	assertWorkspaceTokenInMap(t, byName, "Beta Inc", "xoxc-aaa-bbb-ccc", "https://beta.slack.com")
 }
 
 func TestExtractWorkspaceTokens_UnrelatedKeysIgnored(t *testing.T) {

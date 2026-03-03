@@ -73,7 +73,7 @@ func TestHistoryCmd_LimitFlagPassedToRunFn(t *testing.T) {
 }
 
 func TestHistoryCmd_ThreadsFalsePassedToRunFn(t *testing.T) {
-	var capturedThreads bool = true
+	capturedThreads := true
 	runFn := func(_ context.Context, _ tokens.Workspace, _, _ string, _ slack.DateRange, _ int, threads bool) ([]slack.Message, error) {
 		capturedThreads = threads
 		return nil, nil

@@ -28,7 +28,7 @@ func newAuthShowCmd(extractFn func() (tokens.TokenExtractionResult, error)) *cob
 	return &cobra.Command{
 		Use:   "show",
 		Short: "Display discovered workspace credentials",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			result, err := extractFn()
 			if err != nil {
 				return fmt.Errorf(
@@ -51,7 +51,7 @@ func newAuthExportCmd(extractFn func() (tokens.TokenExtractionResult, error)) *c
 	return &cobra.Command{
 		Use:   "export",
 		Short: "Print shell export statements for all discovered workspace tokens",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			result, err := extractFn()
 			if err != nil {
 				return fmt.Errorf(

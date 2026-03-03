@@ -30,7 +30,7 @@ func buildRootCmd() *cobra.Command {
 		Use:          "slackseek",
 		Short:        "Query Slack workspaces using locally extracted credentials",
 		SilenceUsage: true,
-		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
 			if err := validateFormat(flagFormat); err != nil {
 				return err
 			}

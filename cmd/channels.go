@@ -49,6 +49,56 @@ func newChannelsCmd(
 	return channels
 }
 
+// resolveChannelTypes converts the --type CLI flag to the Slack API types slice.
+func resolveChannelTypes(channelType string) ([]string, error) {
+	if channelType == "" {
+		return nil, nil
+	}
+	apiType, ok := validChannelTypes[channelType]
+	if !ok {
+		return nil, fmt.Errorf("invalid --type %q: must be one of public, private, mpim, im", channelType)
+	}
+	return []string{apiType}, nil
+}
+
+func runChannelsListE(
+	cmd *cobra.Command,
+	extractFn func() (tokens.TokenExtractionResult, error),
+	runFn channelsRunFunc,
+	channelType string,
+	archived bool,
+) error {
+	types, err := resolveChannelTypes(channelType)
+	if err != nil {
+		return err
+	}
+	result, err := extractFn()
+	if err != nil {
+		return fmt.Errorf(
+			"failed to extract Slack credentials: %w\n"+
+				"Ensure the Slack desktop application is installed and you are logged in.\n"+
+				"Run `slackseek auth show` to diagnose credential extraction.",
+			err,
+		)
+	}
+	ws, err := SelectWorkspace(result.Workspaces, flagWorkspace)
+	if err != nil {
+		return err
+	}
+	for _, w := range result.Warnings {
+		fmt.Fprintln(os.Stderr, "Warning:", w)
+	}
+	channels, err := runFn(cmd.Context(), ws, types, archived)
+	if err != nil {
+		return fmt.Errorf(
+			"channels list failed: %w\n"+
+				"Verify your token with `slackseek auth show`.",
+			err,
+		)
+	}
+	return output.PrintChannels(cmd.OutOrStdout(), output.Format(flagFormat), channels)
+}
+
 func newChannelsListCmd(
 	extractFn func() (tokens.TokenExtractionResult, error),
 	runFn channelsRunFunc,
@@ -57,58 +107,15 @@ func newChannelsListCmd(
 		channelType string
 		archived    bool
 	)
-
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List workspace channels",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			var types []string
-			if channelType != "" {
-				apiType, ok := validChannelTypes[channelType]
-				if !ok {
-					return fmt.Errorf(
-						"invalid --type %q: must be one of public, private, mpim, im",
-						channelType,
-					)
-				}
-				types = []string{apiType}
-			}
-
-			result, err := extractFn()
-			if err != nil {
-				return fmt.Errorf(
-					"failed to extract Slack credentials: %w\n"+
-						"Ensure the Slack desktop application is installed and you are logged in.\n"+
-						"Run `slackseek auth show` to diagnose credential extraction.",
-					err,
-				)
-			}
-
-			ws, err := SelectWorkspace(result.Workspaces, flagWorkspace)
-			if err != nil {
-				return err
-			}
-
-			for _, w := range result.Warnings {
-				fmt.Fprintln(os.Stderr, "Warning:", w)
-			}
-
-			channels, err := runFn(cmd.Context(), ws, types, archived)
-			if err != nil {
-				return fmt.Errorf(
-					"channels list failed: %w\n"+
-						"Verify your token with `slackseek auth show`.",
-					err,
-				)
-			}
-
-			return output.PrintChannels(cmd.OutOrStdout(), output.Format(flagFormat), channels)
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runChannelsListE(cmd, extractFn, runFn, channelType, archived)
 		},
 	}
-
 	cmd.Flags().StringVar(&channelType, "type", "", "channel type filter: public, private, mpim, im")
 	cmd.Flags().BoolVar(&archived, "archived", false, "include archived channels")
-
 	return cmd
 }
 
