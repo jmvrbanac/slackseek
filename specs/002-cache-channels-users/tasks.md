@@ -98,8 +98,8 @@ exits 0.
 
 > **NOTE: Write T017 tests FIRST.**
 
-- [ ] T017 [P] [US3] Write unit tests for `cache clear` command in `cmd/cache_test.go`. Use the injectable `runFn` pattern consistent with other command tests. Cover: workspace clear removes `{key}/channels.json` and `{key}/users.json`; outputs `"Cache cleared for workspace … (N files removed)."`; no-op when workspace dir absent outputs `"No cache found for workspace …"`; `--all` calls `ClearAll` and reports total file count; command returns non-zero on unexpected I/O error.
-- [ ] T018 [US3] Implement `cmd/cache.go`: define `cacheRunFunc` as `func(ctx context.Context, workspace tokens.Workspace, all bool) error`; implement `addCacheCmd(parent, extractFn, runFn)`, `newCacheClearCmd(extractFn, runFn)`, `runCacheClearE`; implement `defaultRunCacheClear` — constructs a `cache.Store` from `os.UserCacheDir()`; when `--all`, calls `store.ClearAll()` and prints total; otherwise, calls `store.Clear(cache.WorkspaceKey(ws.URL))` and prints workspace name and file count; register via `init()`.
+- [X] T017 [P] [US3] Write unit tests for `cache clear` command in `cmd/cache_test.go`. Use the injectable `runFn` pattern consistent with other command tests. Cover: workspace clear removes `{key}/channels.json` and `{key}/users.json`; outputs `"Cache cleared for workspace … (N files removed)."`; no-op when workspace dir absent outputs `"No cache found for workspace …"`; `--all` calls `ClearAll` and reports total file count; command returns non-zero on unexpected I/O error.
+- [X] T018 [US3] Implement `cmd/cache.go`: define `cacheRunFunc` as `func(ctx context.Context, workspace tokens.Workspace, all bool) error`; implement `addCacheCmd(parent, extractFn, runFn)`, `newCacheClearCmd(extractFn, runFn)`, `runCacheClearE`; implement `defaultRunCacheClear` — constructs a `cache.Store` from `os.UserCacheDir()`; when `--all`, calls `store.ClearAll()` and prints total; otherwise, calls `store.Clear(cache.WorkspaceKey(ws.URL))` and prints workspace name and file count; register via `init()`.
 
 **Checkpoint**: `go test -race ./cmd/...` passes. `slackseek cache clear` works end-to-end.
 
