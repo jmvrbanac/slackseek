@@ -4,12 +4,12 @@ import "time"
 
 // Channel represents a Slack conversation space returned by the API.
 type Channel struct {
-	ID          string // Slack channel ID, e.g. "C01234567"
-	Name        string // display name without '#', e.g. "general"
-	Type        string // "public_channel" | "private_channel" | "mpim" | "im"
-	MemberCount int    // number of members (0 for IMs)
-	Topic       string // current topic text (may be empty)
-	IsArchived  bool
+	ID          string `json:"id"`          // Slack channel ID, e.g. "C01234567"
+	Name        string `json:"name"`        // display name without '#', e.g. "general"
+	Type        string `json:"type"`        // "public_channel" | "private_channel" | "mpim" | "im"
+	MemberCount int    `json:"memberCount"` // number of members (0 for IMs)
+	Topic       string `json:"topic"`       // current topic text (may be empty)
+	IsArchived  bool   `json:"isArchived"`
 }
 
 // Message represents a single Slack message, including thread metadata.
@@ -33,12 +33,12 @@ type Reaction struct {
 
 // User represents a Slack workspace member.
 type User struct {
-	ID          string // Slack user ID, e.g. "U01234567"
-	DisplayName string // @-mentionable name
-	RealName    string // full legal or preferred name
-	Email       string // may be empty if not accessible with current token
-	IsBot       bool
-	IsDeleted   bool // true for deactivated accounts
+	ID          string `json:"id"`          // Slack user ID, e.g. "U01234567"
+	DisplayName string `json:"displayName"` // @-mentionable name
+	RealName    string `json:"realName"`    // full legal or preferred name
+	Email       string `json:"email"`       // may be empty if not accessible with current token
+	IsBot       bool   `json:"isBot"`
+	IsDeleted   bool   `json:"isDeleted"` // true for deactivated accounts
 }
 
 // SearchResult extends Message with search-specific metadata returned by
