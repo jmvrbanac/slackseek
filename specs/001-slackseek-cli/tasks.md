@@ -173,13 +173,13 @@ Note: `internal/slack/channels.go` (US3) and `internal/slack/users.go` (US2) are
 
 ### Tests for User Story 5 — Write FIRST, ensure FAIL before implementing
 
-- [ ] T044 [P] [US5] Write unit tests for `cmd/channels.go` in `cmd/channels_test.go`: assert `channels list` with `--type public` passes `["public_channel"]` to `ListChannels`; assert `--archived` passes `includeArchived=true`; assert table output contains columns ID/Name/Type/Members/Topic; assert `--format json` output matches json-schema.md channels schema; assert `--type invalid` exits with code 1
-- [ ] T045 [P] [US5] Write unit tests for `cmd/users.go` in `cmd/users_test.go`: assert `users list` without flags filters out deleted and bot accounts; assert `--deleted` includes deleted users; assert `--bot` includes bot accounts; assert `--format json` output matches json-schema.md users schema
+- [X] T044 [P] [US5] Write unit tests for `cmd/channels.go` in `cmd/channels_test.go`: assert `channels list` with `--type public` passes `["public_channel"]` to `ListChannels`; assert `--archived` passes `includeArchived=true`; assert table output contains columns ID/Name/Type/Members/Topic; assert `--format json` output matches json-schema.md channels schema; assert `--type invalid` exits with code 1
+- [X] T045 [P] [US5] Write unit tests for `cmd/users.go` in `cmd/users_test.go`: assert `users list` without flags filters out deleted and bot accounts; assert `--deleted` includes deleted users; assert `--bot` includes bot accounts; assert `--format json` output matches json-schema.md users schema
 
 ### Implementation for User Story 5
 
-- [ ] T046 [US5] Implement `cmd/channels.go`: `channels` parent command; `channels list` subcommand with `--type` (string, validated against `public|private|mpim|im`, maps to Slack API `types` param) and `--archived` (bool, default false) flags; `RunE` extracts workspace, creates `Client`, calls `ListChannels`, writes via `output.PrintChannels` with columns ID/Name/Type/Members/Topic
-- [ ] T047 [US5] Implement `cmd/users.go`: `users` parent command; `users list` subcommand with `--deleted` (bool, default false) and `--bot` (bool, default false) flags; `RunE` extracts workspace, creates `Client`, calls `ListUsers`, filters out deleted users unless `--deleted` and bot users unless `--bot`, writes via `output.PrintUsers` with columns ID/DisplayName/RealName/Email/Bot/Deleted
+- [X] T046 [US5] Implement `cmd/channels.go`: `channels` parent command; `channels list` subcommand with `--type` (string, validated against `public|private|mpim|im`, maps to Slack API `types` param) and `--archived` (bool, default false) flags; `RunE` extracts workspace, creates `Client`, calls `ListChannels`, writes via `output.PrintChannels` with columns ID/Name/Type/Members/Topic
+- [X] T047 [US5] Implement `cmd/users.go`: `users` parent command; `users list` subcommand with `--deleted` (bool, default false) and `--bot` (bool, default false) flags; `RunE` extracts workspace, creates `Client`, calls `ListUsers`, filters out deleted users unless `--deleted` and bot users unless `--bot`, writes via `output.PrintUsers` with columns ID/DisplayName/RealName/Email/Bot/Deleted
 
 **Checkpoint**: All five user stories independently functional. `go test -race ./...` passes.
 
