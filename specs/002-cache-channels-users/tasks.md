@@ -107,10 +107,10 @@ exits 0.
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T019 [P] Run `go vet ./...` and resolve any reported issues
-- [ ] T020 [P] Run `golangci-lint run` and resolve any lint issues (function length, error wrapping, unused imports)
-- [ ] T021 [P] Run `go test -race ./...` and confirm zero failures and zero race conditions
-- [ ] T022 [P] Run `GOOS=linux go build ./...` and `GOOS=darwin go build ./...` and confirm both succeed with no errors
+- [X] T019 [P] Run `go vet ./...` and resolve any reported issues
+- [X] T020 [P] Run `golangci-lint run` and resolve any lint issues (function length, error wrapping, unused imports)
+- [X] T021 [P] Run `go test -race ./...` and confirm zero failures and zero race conditions
+- [X] T022 [P] Run `GOOS=linux go build ./...` and `GOOS=darwin go build ./...` and confirm both succeed with no errors
 
 ---
 
