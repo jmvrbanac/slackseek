@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/jmvrbanac/slackseek/internal/cache"
 	"github.com/jmvrbanac/slackseek/internal/output"
 	"github.com/jmvrbanac/slackseek/internal/slack"
 	"github.com/jmvrbanac/slackseek/internal/tokens"
@@ -97,7 +98,7 @@ func defaultRunMessages(
 	dr slack.DateRange,
 	limit int,
 ) ([]slack.Message, error) {
-	c := slack.NewClient(workspace.Token, workspace.Cookie, nil)
+	c := slack.NewClientWithCache(workspace.Token, workspace.Cookie, nil, buildCacheStore(workspace), cache.WorkspaceKey(workspace.URL))
 
 	userID, err := c.ResolveUser(ctx, userArg)
 	if err != nil {

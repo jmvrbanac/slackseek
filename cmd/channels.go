@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/jmvrbanac/slackseek/internal/cache"
 	"github.com/jmvrbanac/slackseek/internal/output"
 	"github.com/jmvrbanac/slackseek/internal/slack"
 	"github.com/jmvrbanac/slackseek/internal/tokens"
@@ -126,7 +127,7 @@ func defaultRunChannels(
 	types []string,
 	includeArchived bool,
 ) ([]slack.Channel, error) {
-	c := slack.NewClient(workspace.Token, workspace.Cookie, nil)
+	c := slack.NewClientWithCache(workspace.Token, workspace.Cookie, nil, buildCacheStore(workspace), cache.WorkspaceKey(workspace.URL))
 	return c.ListChannels(ctx, types, includeArchived)
 }
 

@@ -2,11 +2,16 @@ package slack
 
 import (
 	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	slackgo "github.com/slack-go/slack"
+
+	"github.com/jmvrbanac/slackseek/internal/cache"
 )
 
 // --- resolveChannel tests ---
@@ -225,6 +230,108 @@ func TestFetchHistory_LimitRespectedAcrossRootAndReplies(t *testing.T) {
 	}
 	if len(msgs) > 2 {
 		t.Errorf("expected at most 2 messages (limit=2), got %d", len(msgs))
+	}
+}
+
+// --- ListChannels cache tests (T005) ---
+
+func TestListChannelsCached_NilStore_APIAlwaysCalled(t *testing.T) {
+	called := 0
+	listFn := func(_ context.Context) ([]Channel, error) {
+		called++
+		return []Channel{{ID: "C001", Name: "general"}}, nil
+	}
+	channels, err := listChannelsCached(context.Background(), nil, "", listFn)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if called != 1 {
+		t.Errorf("expected 1 API call, got %d", called)
+	}
+	if len(channels) != 1 || channels[0].ID != "C001" {
+		t.Errorf("unexpected channels: %v", channels)
+	}
+}
+
+func TestListChannelsCached_FreshCache_APINotCalled(t *testing.T) {
+	store := cache.NewStore(t.TempDir(), time.Hour)
+	key := "testkey"
+	payload, err := json.Marshal([]Channel{{ID: "C001", Name: "general"}})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if err := store.Save(key, "channels", payload); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	called := 0
+	listFn := func(_ context.Context) ([]Channel, error) {
+		called++
+		return nil, nil
+	}
+	channels, err := listChannelsCached(context.Background(), store, key, listFn)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if called != 0 {
+		t.Errorf("expected no API call on cache hit, got %d", called)
+	}
+	if len(channels) != 1 || channels[0].ID != "C001" {
+		t.Errorf("expected cached data, got %v", channels)
+	}
+}
+
+func TestListChannelsCached_CacheMiss_APICalledAndSaved(t *testing.T) {
+	dir := t.TempDir()
+	store := cache.NewStore(dir, time.Hour)
+	key := "testkey"
+	called := 0
+	listFn := func(_ context.Context) ([]Channel, error) {
+		called++
+		return []Channel{{ID: "C002", Name: "random"}}, nil
+	}
+	channels, err := listChannelsCached(context.Background(), store, key, listFn)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if called != 1 {
+		t.Errorf("expected 1 API call, got %d", called)
+	}
+	if len(channels) != 1 || channels[0].ID != "C002" {
+		t.Errorf("unexpected channels: %v", channels)
+	}
+	_, hit, _ := store.Load(key, "channels")
+	if !hit {
+		t.Error("expected cache to be written after API call")
+	}
+}
+
+func TestListChannelsCached_StaleCache_APICalledAndOverwritten(t *testing.T) {
+	dir := t.TempDir()
+	store := cache.NewStore(dir, time.Hour)
+	key := "testkey"
+	oldPayload, _ := json.Marshal([]Channel{{ID: "COLD", Name: "old"}})
+	if err := store.Save(key, "channels", oldPayload); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	path := filepath.Join(dir, key, "channels.json")
+	past := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(path, past, past); err != nil {
+		t.Fatalf("Chtimes: %v", err)
+	}
+	called := 0
+	listFn := func(_ context.Context) ([]Channel, error) {
+		called++
+		return []Channel{{ID: "CNEW", Name: "new"}}, nil
+	}
+	channels, err := listChannelsCached(context.Background(), store, key, listFn)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if called != 1 {
+		t.Errorf("expected 1 API call for stale cache, got %d", called)
+	}
+	if len(channels) != 1 || channels[0].ID != "CNEW" {
+		t.Errorf("expected fresh data, got %v", channels)
 	}
 }
 

@@ -9,6 +9,8 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 	slackgo "github.com/slack-go/slack"
+
+	"github.com/jmvrbanac/slackseek/internal/cache"
 )
 
 // maxAttempts is the total number of attempts (initial + retries) for retryable errors.
@@ -18,6 +20,8 @@ const maxAttempts = 3
 type Client struct {
 	api         *slackgo.Client
 	onRateLimit func(time.Duration) // called before sleeping on HTTP 429; may be nil
+	store       *cache.Store        // optional; nil disables caching
+	cacheKey    string              // workspace-specific key for cache lookups
 }
 
 // SetRateLimitCallback registers fn to be called before sleeping on a 429
@@ -55,6 +59,15 @@ func NewClient(token, cookie string, httpClient *http.Client) *Client {
 	}
 
 	return &Client{api: slackgo.New(token, slackgo.OptionHTTPClient(&http.Client{Transport: transport}))}
+}
+
+// NewClientWithCache returns an authenticated Client backed by the given cache
+// store. Passing a nil store produces the same behaviour as NewClient.
+func NewClientWithCache(token, cookie string, httpClient *http.Client, store *cache.Store, cacheKey string) *Client {
+	c := NewClient(token, cookie, httpClient)
+	c.store = store
+	c.cacheKey = cacheKey
+	return c
 }
 
 // ctxSleep waits for duration d or until ctx is cancelled.

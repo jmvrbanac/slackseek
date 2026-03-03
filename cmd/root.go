@@ -4,8 +4,11 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/jmvrbanac/slackseek/internal/cache"
 	"github.com/jmvrbanac/slackseek/internal/output"
 	"github.com/jmvrbanac/slackseek/internal/slack"
 	"github.com/jmvrbanac/slackseek/internal/tokens"
@@ -14,10 +17,13 @@ import (
 
 // Global flag values populated by cobra before PersistentPreRunE runs.
 var (
-	flagWorkspace string
-	flagFormat    string
-	flagFrom      string
-	flagTo        string
+	flagWorkspace    string
+	flagFormat       string
+	flagFrom         string
+	flagTo           string
+	flagCacheTTL     time.Duration
+	flagRefreshCache bool
+	flagNoCache      bool
 )
 
 // ParsedDateRange is set by PersistentPreRunE and available to all subcommands.
@@ -39,6 +45,12 @@ func buildRootCmd() *cobra.Command {
 				return err
 			}
 			ParsedDateRange = dr
+			if flagCacheTTL < 0 {
+				return fmt.Errorf("invalid --cache-ttl: duration must not be negative")
+			}
+			if flagRefreshCache && flagNoCache {
+				return fmt.Errorf("--refresh-cache and --no-cache are mutually exclusive")
+			}
 			return nil
 		},
 	}
@@ -47,8 +59,29 @@ func buildRootCmd() *cobra.Command {
 	root.PersistentFlags().StringVar(&flagFormat, "format", "text", "output format: text | table | json")
 	root.PersistentFlags().StringVar(&flagFrom, "from", "", "start of date range: YYYY-MM-DD or RFC 3339")
 	root.PersistentFlags().StringVar(&flagTo, "to", "", "end of date range: YYYY-MM-DD or RFC 3339")
+	root.PersistentFlags().DurationVar(&flagCacheTTL, "cache-ttl", 24*time.Hour, "how long cached channel/user lists remain valid (0 disables caching)")
+	root.PersistentFlags().BoolVar(&flagRefreshCache, "refresh-cache", false, "force a fresh API fetch and overwrite the cached data")
+	root.PersistentFlags().BoolVar(&flagNoCache, "no-cache", false, "bypass the cache entirely (read and write)")
 
 	return root
+}
+
+// buildCacheStore constructs a cache.Store for the given workspace, applying
+// the global cache flags. Returns nil when caching is disabled.
+func buildCacheStore(ws tokens.Workspace) *cache.Store {
+	if flagNoCache || flagCacheTTL == 0 {
+		return nil
+	}
+	userCacheDir, err := os.UserCacheDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not determine cache directory: %v\n", err)
+		return nil
+	}
+	store := cache.NewStore(filepath.Join(userCacheDir, "slackseek"), flagCacheTTL)
+	if flagRefreshCache {
+		_ = store.Clear(cache.WorkspaceKey(ws.URL))
+	}
+	return store
 }
 
 // validateFormat returns an error if f is not one of the accepted format values.

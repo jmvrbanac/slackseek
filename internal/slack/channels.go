@@ -2,6 +2,7 @@ package slack
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strconv"
@@ -9,6 +10,8 @@ import (
 	"time"
 
 	slackgo "github.com/slack-go/slack"
+
+	"github.com/jmvrbanac/slackseek/internal/cache"
 )
 
 // histPageFetcher fetches one page of channel history. Injectable for testing.
@@ -17,6 +20,39 @@ type histPageFetcher func(ctx context.Context, channelID, oldest, latest, cursor
 // replyPageFetcher fetches one page of thread replies. Injectable for testing.
 type replyPageFetcher func(ctx context.Context, channelID, threadTS, cursor string) ([]slackgo.Message, bool, string, error)
 
+// listChannelsCached is the testable inner implementation of ListChannels.
+// When store is non-nil and cacheKey is non-empty it attempts a cache load
+// before calling listFn. On a miss it calls listFn and persists the result.
+func listChannelsCached(
+	ctx context.Context,
+	store *cache.Store,
+	cacheKey string,
+	listFn func(context.Context) ([]Channel, error),
+) ([]Channel, error) {
+	if store != nil && cacheKey != "" {
+		data, hit, err := store.Load(cacheKey, "channels")
+		if err != nil {
+			return nil, fmt.Errorf("cache load channels: %w", err)
+		}
+		if hit {
+			var channels []Channel
+			if jsonErr := json.Unmarshal(data, &channels); jsonErr == nil {
+				return channels, nil
+			}
+		}
+	}
+	channels, err := listFn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if store != nil && cacheKey != "" {
+		if data, jsonErr := json.Marshal(channels); jsonErr == nil {
+			_ = store.Save(cacheKey, "channels", data)
+		}
+	}
+	return channels, nil
+}
+
 // ListChannels returns all channels by paginating conversations.list.
 // Pass nil types to include all channel types. Pass includeArchived=true to
 // include archived channels.
@@ -24,32 +60,34 @@ func (c *Client) ListChannels(ctx context.Context, types []string, includeArchiv
 	if len(types) == 0 {
 		types = []string{"public_channel", "private_channel", "mpim", "im"}
 	}
-	params := &slackgo.GetConversationsParameters{
-		Types:           types,
-		ExcludeArchived: !includeArchived,
-		Limit:           200,
-	}
-	var result []Channel
-	for {
-		var channels []slackgo.Channel
-		var cursor string
-		err := c.callWithRetry(ctx, func() error {
-			var callErr error
-			channels, cursor, callErr = c.api.GetConversationsContext(ctx, params)
-			return callErr
-		})
-		if err != nil {
-			return nil, fmt.Errorf("list channels: %w", err)
+	return listChannelsCached(ctx, c.store, c.cacheKey, func(ctx context.Context) ([]Channel, error) {
+		params := &slackgo.GetConversationsParameters{
+			Types:           types,
+			ExcludeArchived: !includeArchived,
+			Limit:           200,
 		}
-		for _, ch := range channels {
-			result = append(result, slackChannelToChannel(ch))
+		var result []Channel
+		for {
+			var channels []slackgo.Channel
+			var cursor string
+			err := c.callWithRetry(ctx, func() error {
+				var callErr error
+				channels, cursor, callErr = c.api.GetConversationsContext(ctx, params)
+				return callErr
+			})
+			if err != nil {
+				return nil, fmt.Errorf("list channels: %w", err)
+			}
+			for _, ch := range channels {
+				result = append(result, slackChannelToChannel(ch))
+			}
+			if cursor == "" {
+				break
+			}
+			params.Cursor = cursor
 		}
-		if cursor == "" {
-			break
-		}
-		params.Cursor = cursor
-	}
-	return result, nil
+		return result, nil
+	})
 }
 
 func slackChannelToChannel(ch slackgo.Channel) Channel {

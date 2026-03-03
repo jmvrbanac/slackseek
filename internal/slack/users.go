@@ -2,33 +2,71 @@ package slack
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/jmvrbanac/slackseek/internal/cache"
 )
 
 // slackIDPattern matches Slack user IDs (U…) and workspace-app IDs (W…).
 var slackIDPattern = regexp.MustCompile(`^[UW][A-Z0-9]+$`)
 
+// listUsersCached is the testable inner implementation of ListUsers.
+// When store is non-nil and cacheKey is non-empty it attempts a cache load
+// before calling listFn. On a miss it calls listFn and persists the result.
+func listUsersCached(
+	ctx context.Context,
+	store *cache.Store,
+	cacheKey string,
+	listFn func(context.Context) ([]User, error),
+) ([]User, error) {
+	if store != nil && cacheKey != "" {
+		data, hit, err := store.Load(cacheKey, "users")
+		if err != nil {
+			return nil, fmt.Errorf("cache load users: %w", err)
+		}
+		if hit {
+			var users []User
+			if jsonErr := json.Unmarshal(data, &users); jsonErr == nil {
+				return users, nil
+			}
+		}
+	}
+	users, err := listFn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if store != nil && cacheKey != "" {
+		if data, jsonErr := json.Marshal(users); jsonErr == nil {
+			_ = store.Save(cacheKey, "users", data)
+		}
+	}
+	return users, nil
+}
+
 // ListUsers returns all workspace members by fetching from users.list.
 // The slack-go library handles cursor pagination internally.
 func (c *Client) ListUsers(ctx context.Context) ([]User, error) {
-	apiUsers, err := c.api.GetUsersContext(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list users: %w", err)
-	}
-	result := make([]User, len(apiUsers))
-	for i, u := range apiUsers {
-		result[i] = User{
-			ID:          u.ID,
-			DisplayName: u.Profile.DisplayName,
-			RealName:    u.RealName,
-			Email:       u.Profile.Email,
-			IsBot:       u.IsBot,
-			IsDeleted:   u.Deleted,
+	return listUsersCached(ctx, c.store, c.cacheKey, func(ctx context.Context) ([]User, error) {
+		apiUsers, err := c.api.GetUsersContext(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("list users: %w", err)
 		}
-	}
-	return result, nil
+		result := make([]User, len(apiUsers))
+		for i, u := range apiUsers {
+			result[i] = User{
+				ID:          u.ID,
+				DisplayName: u.Profile.DisplayName,
+				RealName:    u.RealName,
+				Email:       u.Profile.Email,
+				IsBot:       u.IsBot,
+				IsDeleted:   u.Deleted,
+			}
+		}
+		return result, nil
+	})
 }
 
 // ResolveUser maps a display name, real name, or Slack user/bot ID to a Slack
