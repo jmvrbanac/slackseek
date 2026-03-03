@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/jmvrbanac/slackseek/internal/cache"
 	"github.com/jmvrbanac/slackseek/internal/output"
@@ -128,6 +129,11 @@ func defaultRunChannels(
 	includeArchived bool,
 ) ([]slack.Channel, error) {
 	c := slack.NewClientWithCache(workspace.Token, workspace.Cookie, nil, buildCacheStore(workspace), cache.WorkspaceKey(workspace.URL))
+	c.SetRateLimitCallback(func(d time.Duration) {
+		if d > 30*time.Second {
+			fmt.Fprintf(os.Stderr, "rate limited — waiting %ds\n", int(d.Seconds()))
+		}
+	})
 	return c.ListChannels(ctx, types, includeArchived)
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/jmvrbanac/slackseek/internal/cache"
 	"github.com/jmvrbanac/slackseek/internal/output"
@@ -115,6 +116,11 @@ func defaultRunUsers(
 	workspace tokens.Workspace,
 ) ([]slack.User, error) {
 	c := slack.NewClientWithCache(workspace.Token, workspace.Cookie, nil, buildCacheStore(workspace), cache.WorkspaceKey(workspace.URL))
+	c.SetRateLimitCallback(func(d time.Duration) {
+		if d > 30*time.Second {
+			fmt.Fprintf(os.Stderr, "rate limited — waiting %ds\n", int(d.Seconds()))
+		}
+	})
 	return c.ListUsers(ctx)
 }
 
