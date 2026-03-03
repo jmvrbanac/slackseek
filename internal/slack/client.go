@@ -16,7 +16,14 @@ const maxAttempts = 3
 
 // Client wraps the slack-go API client with rate-limit retry logic.
 type Client struct {
-	api *slackgo.Client
+	api         *slackgo.Client
+	onRateLimit func(time.Duration) // called before sleeping on HTTP 429; may be nil
+}
+
+// SetRateLimitCallback registers fn to be called before sleeping on a 429
+// response. fn receives the Retry-After duration. Pass nil to clear.
+func (c *Client) SetRateLimitCallback(fn func(time.Duration)) {
+	c.onRateLimit = fn
 }
 
 // cookieTransport wraps an http.RoundTripper and injects the Slack session
@@ -76,6 +83,9 @@ func (c *Client) callWithRetry(ctx context.Context, fn func() error) error {
 		if errors.As(err, &rateLimited) {
 			if isLastAttempt {
 				return fmt.Errorf("rate limited after %d attempts: %w", maxAttempts, err)
+			}
+			if c.onRateLimit != nil {
+				c.onRateLimit(rateLimited.RetryAfter)
 			}
 			select {
 			case <-ctx.Done():
