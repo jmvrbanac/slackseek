@@ -103,8 +103,9 @@ func NewRootCmd() *cobra.Command {
 	return buildRootCmd()
 }
 
-// Execute runs the root command.
-func Execute() error {
+// Execute runs the root command with the given version string.
+func Execute(version string) error {
+	rootCmd.Version = version
 	return rootCmd.Execute()
 }
 
