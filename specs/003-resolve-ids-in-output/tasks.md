@@ -166,14 +166,14 @@ failing BEFORE their respective implementation tasks.
 
 ### Tests for User Story 4 ⚠️ WRITE THESE FIRST — CONFIRM THEY FAIL
 
-- [ ] T026 [US4] Write failing tests for `ListUserGroups` in a new file
+- [X] T026 [US4] Write failing tests for `ListUserGroups` in a new file
   `internal/slack/usergroups_test.go`. Use a local `httptest.NewServer` to mock the
   `usergroups.list` response. Tests: (a) successful response returns a slice of `UserGroup`
   with correct `ID`, `Handle`, `Name` fields; (b) response with `"ok": false` returns an
   error; (c) empty `usergroups` array returns an empty slice without error. Tests should fail
   because `ListUserGroups` does not yet exist.
 
-- [ ] T029 [US4] Add failing resolver tests to `internal/slack/resolver_test.go` for group
+- [X] T029 [US4] Add failing resolver tests to `internal/slack/resolver_test.go` for group
   resolution. Tests: (a) `<!subteam^KNOWN_ID>` with no label resolves to `@handle` when
   group is in resolver; (b) `<!subteam^UNKNOWN_ID>` with no label falls back to `@[group]`;
   (c) `<!subteam^ID|@label>` still uses the embedded label even when group is in resolver
@@ -182,10 +182,10 @@ failing BEFORE their respective implementation tasks.
 
 ### Implementation for User Story 4
 
-- [ ] T027 [US4] Add `UserGroup` struct to `internal/slack/types.go`:
+- [X] T027 [US4] Add `UserGroup` struct to `internal/slack/types.go`:
   `type UserGroup struct { ID string; Handle string; Name string }`. No other changes.
 
-- [ ] T028 [US4] Create `internal/slack/usergroups.go`. Implement:
+- [X] T028 [US4] Create `internal/slack/usergroups.go`. Implement:
   `listUserGroupsCached(ctx, client, cacheStore, workspaceKey) ([]UserGroup, error)` — calls
   `usergroups.list` API (param `include_disabled=false`), caches result under key
   `"user_groups"` using the existing `internal/cache` store pattern (same as channels/users).
@@ -194,23 +194,23 @@ failing BEFORE their respective implementation tasks.
   needed (Slack returns all groups in one call). Run `go test ./internal/slack/...` — T026
   tests must pass.
 
-- [ ] T030 [US4] Update `NewResolver` signature in `internal/slack/resolver.go` to accept a
+- [X] T030 [US4] Update `NewResolver` signature in `internal/slack/resolver.go` to accept a
   third parameter `groups []UserGroup`. Add `groups map[string]string` field to `Resolver`.
   Populate from the groups slice: key = `g.ID`, value = `g.Handle`. Nil slice is safe (empty
   map). Run `go test ./internal/slack/...` — T029 resolver tests must pass.
 
-- [ ] T031 [US4] Update `ResolveMentions` in `internal/slack/resolver.go`: in the subteam
+- [X] T031 [US4] Update `ResolveMentions` in `internal/slack/resolver.go`: in the subteam
   handler, after checking for an embedded label, look up `r.groups[id]` where `id` is the
   group ID extracted from the token. If found, return `"@" + handle`; otherwise return
   `"@[group]"`. The embedded label path is unchanged (label wins when present).
 
-- [ ] T032 [US4] Update `buildResolver` in `cmd/resolver.go` to call
+- [X] T032 [US4] Update `buildResolver` in `cmd/resolver.go` to call
   `c.ListUserGroups(ctx)` after fetching users and channels. On error, write
   `"Warning: could not resolve user groups: <err>"` to stderr and pass `nil` for groups
   (resolver still built with users and channels). Pass groups slice as third argument to
   `slack.NewResolver(users, channels, groups)`.
 
-- [ ] T033 [P] [US4] Update all existing `NewResolver(users, channels)` call sites to pass
+- [X] T033 [P] [US4] Update all existing `NewResolver(users, channels)` call sites to pass
   the groups argument. Affected files: `internal/output/format_test.go` (fixtureResolver and
   any direct NewResolver calls — pass `nil`), `internal/slack/resolver_test.go` (all
   `NewResolver(…)` calls — pass `nil` for the groups arg). Compile-check with

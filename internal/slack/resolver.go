@@ -6,7 +6,8 @@ import "regexp"
 var mentionPattern = regexp.MustCompile(`<@([A-Z0-9]+)>`)
 
 // subteamPattern matches <!subteam^ID> and <!subteam^ID|label> tokens.
-var subteamPattern = regexp.MustCompile(`<!subteam\^[A-Z0-9]+(?:\|([^>]+))?>`)
+// Group 1 captures the group ID; group 2 captures the optional label.
+var subteamPattern = regexp.MustCompile(`<!subteam\^([A-Z0-9]+)(?:\|([^>]+))?>`)
 
 // broadcastPattern matches <!here>, <!channel>, and <!everyone>.
 var broadcastPattern = regexp.MustCompile(`<!(here|channel|everyone)>`)
@@ -19,16 +20,18 @@ var urlPattern = regexp.MustCompile(`<(https?://[^|>]+)(?:\|([^>]+))?>`)
 type Resolver struct {
 	users    map[string]string
 	channels map[string]string
+	groups   map[string]string
 }
 
-// NewResolver constructs a Resolver from slices of users and channels.
+// NewResolver constructs a Resolver from slices of users, channels, and user groups.
 // It builds O(n) lookup maps at construction time. Nil slices are safe.
 // For users, RealName is preferred; DisplayName is the fallback; raw ID
 // is used when both are empty.
-func NewResolver(users []User, channels []Channel) *Resolver {
+func NewResolver(users []User, channels []Channel, groups []UserGroup) *Resolver {
 	r := &Resolver{
 		users:    make(map[string]string, len(users)),
 		channels: make(map[string]string, len(channels)),
+		groups:   make(map[string]string, len(groups)),
 	}
 	for _, u := range users {
 		name := u.RealName
@@ -41,6 +44,11 @@ func NewResolver(users []User, channels []Channel) *Resolver {
 	}
 	for _, ch := range channels {
 		r.channels[ch.ID] = ch.Name
+	}
+	for _, g := range groups {
+		if g.Handle != "" {
+			r.groups[g.ID] = g.Handle
+		}
 	}
 	return r
 }
@@ -76,8 +84,14 @@ func (r *Resolver) ResolveMentions(text string) string {
 		return "@" + r.UserDisplayName(id)
 	})
 	text = subteamPattern.ReplaceAllStringFunc(text, func(match string) string {
-		if subs := subteamPattern.FindStringSubmatch(match); len(subs) > 1 && subs[1] != "" {
-			return subs[1]
+		subs := subteamPattern.FindStringSubmatch(match)
+		if len(subs) > 2 && subs[2] != "" {
+			return subs[2] // embedded label wins over group lookup
+		}
+		if len(subs) > 1 && subs[1] != "" {
+			if handle, ok := r.groups[subs[1]]; ok {
+				return "@" + handle
+			}
 		}
 		return "@[group]"
 	})

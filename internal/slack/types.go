@@ -41,6 +41,13 @@ type User struct {
 	IsDeleted   bool   `json:"isDeleted"` // true for deactivated accounts
 }
 
+// UserGroup represents a Slack user group (subteam) returned by the usergroups.list API.
+type UserGroup struct {
+	ID     string `json:"id"`     // Slack user group ID, e.g. "S01234567"
+	Handle string `json:"handle"` // handle without @, e.g. "eng"
+	Name   string `json:"name"`   // display name, e.g. "Engineering"
+}
+
 // SearchResult extends Message with search-specific metadata returned by
 // the search.messages API.
 type SearchResult struct {

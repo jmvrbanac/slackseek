@@ -32,5 +32,10 @@ func buildResolver(ctx context.Context, ws tokens.Workspace) *slack.Resolver {
 		fmt.Fprintf(os.Stderr, "Warning: could not resolve IDs: %v\n", err)
 		return nil
 	}
-	return slack.NewResolver(users, channels)
+	groups, err := c.ListUserGroups(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not resolve user groups: %v\n", err)
+		groups = nil
+	}
+	return slack.NewResolver(users, channels, groups)
 }

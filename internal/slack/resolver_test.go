@@ -5,14 +5,14 @@ import "testing"
 // T001: Unit tests for NewResolver, UserDisplayName, and ChannelName.
 
 func TestNewResolver_NilSlicesDoNotPanic(t *testing.T) {
-	r := NewResolver(nil, nil)
+	r := NewResolver(nil, nil, nil)
 	if r == nil {
 		t.Fatal("expected non-nil resolver from nil slices")
 	}
 }
 
 func TestNewResolver_EmptySlicesFallBackToRawID(t *testing.T) {
-	r := NewResolver([]User{}, []Channel{})
+	r := NewResolver([]User{}, []Channel{}, nil)
 	if got := r.UserDisplayName("U123"); got != "U123" {
 		t.Errorf("UserDisplayName: expected raw ID 'U123', got %q", got)
 	}
@@ -25,7 +25,7 @@ func TestNewResolver_UserRealNamePreferred(t *testing.T) {
 	users := []User{
 		{ID: "U001", DisplayName: "alice", RealName: "Alice Smith"},
 	}
-	r := NewResolver(users, nil)
+	r := NewResolver(users, nil, nil)
 	if got := r.UserDisplayName("U001"); got != "Alice Smith" {
 		t.Errorf("expected real name 'Alice Smith', got %q", got)
 	}
@@ -35,7 +35,7 @@ func TestNewResolver_UserDisplayNameFallback(t *testing.T) {
 	users := []User{
 		{ID: "U002", DisplayName: "bob", RealName: ""},
 	}
-	r := NewResolver(users, nil)
+	r := NewResolver(users, nil, nil)
 	if got := r.UserDisplayName("U002"); got != "bob" {
 		t.Errorf("expected display name 'bob', got %q", got)
 	}
@@ -45,14 +45,14 @@ func TestNewResolver_BothNamesEmptyFallsBackToID(t *testing.T) {
 	users := []User{
 		{ID: "U003", DisplayName: "", RealName: ""},
 	}
-	r := NewResolver(users, nil)
+	r := NewResolver(users, nil, nil)
 	if got := r.UserDisplayName("U003"); got != "U003" {
 		t.Errorf("expected raw ID 'U003', got %q", got)
 	}
 }
 
 func TestNewResolver_UnknownUserIDFallsBackToID(t *testing.T) {
-	r := NewResolver(nil, nil)
+	r := NewResolver(nil, nil, nil)
 	if got := r.UserDisplayName("U999"); got != "U999" {
 		t.Errorf("expected raw ID 'U999', got %q", got)
 	}
@@ -62,14 +62,14 @@ func TestNewResolver_ChannelLookup(t *testing.T) {
 	channels := []Channel{
 		{ID: "C001", Name: "general"},
 	}
-	r := NewResolver(nil, channels)
+	r := NewResolver(nil, channels, nil)
 	if got := r.ChannelName("C001"); got != "general" {
 		t.Errorf("expected 'general', got %q", got)
 	}
 }
 
 func TestNewResolver_UnknownChannelIDFallsBackToID(t *testing.T) {
-	r := NewResolver(nil, nil)
+	r := NewResolver(nil, nil, nil)
 	if got := r.ChannelName("C999"); got != "C999" {
 		t.Errorf("expected raw ID 'C999', got %q", got)
 	}
@@ -77,7 +77,7 @@ func TestNewResolver_UnknownChannelIDFallsBackToID(t *testing.T) {
 
 func TestResolveMentions_ReplacesKnownUserID(t *testing.T) {
 	users := []User{{ID: "U001", RealName: "Alice Smith"}}
-	r := NewResolver(users, nil)
+	r := NewResolver(users, nil, nil)
 	got := r.ResolveMentions("Hello <@U001>, how are you?")
 	want := "Hello @Alice Smith, how are you?"
 	if got != want {
@@ -86,7 +86,7 @@ func TestResolveMentions_ReplacesKnownUserID(t *testing.T) {
 }
 
 func TestResolveMentions_FallsBackToIDForUnknownUser(t *testing.T) {
-	r := NewResolver(nil, nil)
+	r := NewResolver(nil, nil, nil)
 	got := r.ResolveMentions("Hello <@U999>!")
 	want := "Hello @U999!"
 	if got != want {
@@ -95,7 +95,7 @@ func TestResolveMentions_FallsBackToIDForUnknownUser(t *testing.T) {
 }
 
 func TestResolveMentions_NoMentionsUnchanged(t *testing.T) {
-	r := NewResolver(nil, nil)
+	r := NewResolver(nil, nil, nil)
 	got := r.ResolveMentions("just plain text")
 	if got != "just plain text" {
 		t.Errorf("got %q, want %q", got, "just plain text")
@@ -107,7 +107,7 @@ func TestResolveMentions_MultipleMentions(t *testing.T) {
 		{ID: "U001", RealName: "Alice"},
 		{ID: "U002", RealName: "Bob"},
 	}
-	r := NewResolver(users, nil)
+	r := NewResolver(users, nil, nil)
 	got := r.ResolveMentions("<@U001> and <@U002>")
 	want := "@Alice and @Bob"
 	if got != want {
@@ -116,7 +116,7 @@ func TestResolveMentions_MultipleMentions(t *testing.T) {
 }
 
 func TestResolveMentions_SubteamWithLabel(t *testing.T) {
-	r := NewResolver(nil, nil)
+	r := NewResolver(nil, nil, nil)
 	got := r.ResolveMentions("Hey <!subteam^S123|@eng-team>, heads up!")
 	want := "Hey @eng-team, heads up!"
 	if got != want {
@@ -125,7 +125,7 @@ func TestResolveMentions_SubteamWithLabel(t *testing.T) {
 }
 
 func TestResolveMentions_SubteamWithoutLabel(t *testing.T) {
-	r := NewResolver(nil, nil)
+	r := NewResolver(nil, nil, nil)
 	got := r.ResolveMentions("<!subteam^SSRHMQ1NC> please review")
 	want := "@[group] please review"
 	if got != want {
@@ -134,7 +134,7 @@ func TestResolveMentions_SubteamWithoutLabel(t *testing.T) {
 }
 
 func TestResolveMentions_BroadcastTokens(t *testing.T) {
-	r := NewResolver(nil, nil)
+	r := NewResolver(nil, nil, nil)
 	cases := []struct{ in, want string }{
 		{"<!here> anyone around?", "@here anyone around?"},
 		{"<!channel> important update", "@channel important update"},
@@ -148,7 +148,7 @@ func TestResolveMentions_BroadcastTokens(t *testing.T) {
 }
 
 func TestResolveMentions_BareURL(t *testing.T) {
-	r := NewResolver(nil, nil)
+	r := NewResolver(nil, nil, nil)
 	got := r.ResolveMentions("See <https://example.com/path> for details")
 	want := "See https://example.com/path for details"
 	if got != want {
@@ -157,7 +157,7 @@ func TestResolveMentions_BareURL(t *testing.T) {
 }
 
 func TestResolveMentions_URLWithDisplayText(t *testing.T) {
-	r := NewResolver(nil, nil)
+	r := NewResolver(nil, nil, nil)
 	got := r.ResolveMentions("See <https://example.com/path|this ticket> for details")
 	want := "See this ticket for details"
 	if got != want {
@@ -165,10 +165,49 @@ func TestResolveMentions_URLWithDisplayText(t *testing.T) {
 	}
 }
 
+// T029: Failing resolver tests for group resolution.
+// These test NewResolver with a third groups argument which does not yet exist.
+
+func TestResolveMentions_SubteamWithKnownID_ResolvesToHandle(t *testing.T) {
+	groups := []UserGroup{{ID: "S001", Handle: "eng", Name: "Engineering"}}
+	r := NewResolver(nil, nil, groups)
+	got := r.ResolveMentions("<!subteam^S001>")
+	want := "@eng"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestResolveMentions_SubteamWithUnknownID_FallsBackToGroup(t *testing.T) {
+	r := NewResolver(nil, nil, nil)
+	got := r.ResolveMentions("<!subteam^SUNKNOWN>")
+	want := "@[group]"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestResolveMentions_SubteamWithLabelWinsOverGroupLookup(t *testing.T) {
+	groups := []UserGroup{{ID: "S001", Handle: "eng", Name: "Engineering"}}
+	r := NewResolver(nil, nil, groups)
+	got := r.ResolveMentions("<!subteam^S001|@frontend>")
+	want := "@frontend"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestNewResolver_NilGroupsDoesNotPanic(t *testing.T) {
+	r := NewResolver(nil, nil, nil)
+	if r == nil {
+		t.Fatal("expected non-nil resolver from nil groups")
+	}
+}
+
 // T016: Resolver built from empty slices returns raw IDs (not empty strings).
 
 func TestNewResolver_EmptySlicesReturnNonEmptyFallback(t *testing.T) {
-	r := NewResolver([]User{}, []Channel{})
+	r := NewResolver([]User{}, []Channel{}, nil)
 	if got := r.UserDisplayName("U123"); got != "U123" {
 		t.Errorf("expected raw ID 'U123' from empty-slice resolver, got %q", got)
 	}

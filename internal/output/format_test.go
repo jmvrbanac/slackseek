@@ -206,7 +206,7 @@ func fixtureResolver() *slack.Resolver {
 	channels := []slack.Channel{
 		{ID: "C01234567", Name: "general"},
 	}
-	return slack.NewResolver(users, channels)
+	return slack.NewResolver(users, channels, nil)
 }
 
 func TestPrintMessages_TextUsesDisplayNameWithResolver(t *testing.T) {
@@ -321,7 +321,7 @@ func TestPrintSearchResults_NilResolverFallsBackToRawID(t *testing.T) {
 // --- T016: Resolver built from empty slices returns raw IDs ---
 
 func TestPrintMessages_EmptyResolverReturnsRawIDs(t *testing.T) {
-	r := slack.NewResolver([]slack.User{}, []slack.Channel{})
+	r := slack.NewResolver([]slack.User{}, []slack.Channel{}, nil)
 	var buf bytes.Buffer
 	if err := output.PrintMessages(&buf, output.FormatText, fixtureMessages(), r); err != nil {
 		t.Fatal(err)
