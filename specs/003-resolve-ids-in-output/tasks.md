@@ -151,6 +151,77 @@ without panics. US3 is fully functional.
 
 ---
 
+## Phase 8: User Story 4 — User Group Resolution (Priority: P4)
+
+**Goal**: `<!subteam^ID>` tokens without an embedded label resolve to `@handle` using a
+cached user-groups list from the Slack `usergroups.list` API. Tokens with an embedded label
+continue to use the label as before. `@[group]` appears only when the ID is unknown.
+
+**Independent Test**: Run any message command against a channel containing
+`<!subteam^KNOWN_ID>` with no embedded label. Verify output shows `@handle` rather than
+`@[group]`. Confirm that `--no-cache` still produces `@[group]` (nil resolver path).
+
+**⚠️ CRITICAL**: T026 (API tests) and T029 (resolver tests) MUST be written and confirmed
+failing BEFORE their respective implementation tasks.
+
+### Tests for User Story 4 ⚠️ WRITE THESE FIRST — CONFIRM THEY FAIL
+
+- [ ] T026 [US4] Write failing tests for `ListUserGroups` in a new file
+  `internal/slack/usergroups_test.go`. Use a local `httptest.NewServer` to mock the
+  `usergroups.list` response. Tests: (a) successful response returns a slice of `UserGroup`
+  with correct `ID`, `Handle`, `Name` fields; (b) response with `"ok": false` returns an
+  error; (c) empty `usergroups` array returns an empty slice without error. Tests should fail
+  because `ListUserGroups` does not yet exist.
+
+- [ ] T029 [US4] Add failing resolver tests to `internal/slack/resolver_test.go` for group
+  resolution. Tests: (a) `<!subteam^KNOWN_ID>` with no label resolves to `@handle` when
+  group is in resolver; (b) `<!subteam^UNKNOWN_ID>` with no label falls back to `@[group]`;
+  (c) `<!subteam^ID|@label>` still uses the embedded label even when group is in resolver
+  (label wins); (d) `NewResolver` with nil groups slice does not panic. Tests should fail
+  because `NewResolver` does not yet accept a groups parameter.
+
+### Implementation for User Story 4
+
+- [ ] T027 [US4] Add `UserGroup` struct to `internal/slack/types.go`:
+  `type UserGroup struct { ID string; Handle string; Name string }`. No other changes.
+
+- [ ] T028 [US4] Create `internal/slack/usergroups.go`. Implement:
+  `listUserGroupsCached(ctx, client, cacheStore, workspaceKey) ([]UserGroup, error)` — calls
+  `usergroups.list` API (param `include_disabled=false`), caches result under key
+  `"user_groups"` using the existing `internal/cache` store pattern (same as channels/users).
+  `ListUserGroups(ctx context.Context) ([]UserGroup, error)` method on `Client` — delegates
+  to `listUserGroupsCached`. Parse `usergroups` JSON array from response. No pagination
+  needed (Slack returns all groups in one call). Run `go test ./internal/slack/...` — T026
+  tests must pass.
+
+- [ ] T030 [US4] Update `NewResolver` signature in `internal/slack/resolver.go` to accept a
+  third parameter `groups []UserGroup`. Add `groups map[string]string` field to `Resolver`.
+  Populate from the groups slice: key = `g.ID`, value = `g.Handle`. Nil slice is safe (empty
+  map). Run `go test ./internal/slack/...` — T029 resolver tests must pass.
+
+- [ ] T031 [US4] Update `ResolveMentions` in `internal/slack/resolver.go`: in the subteam
+  handler, after checking for an embedded label, look up `r.groups[id]` where `id` is the
+  group ID extracted from the token. If found, return `"@" + handle`; otherwise return
+  `"@[group]"`. The embedded label path is unchanged (label wins when present).
+
+- [ ] T032 [US4] Update `buildResolver` in `cmd/resolver.go` to call
+  `c.ListUserGroups(ctx)` after fetching users and channels. On error, write
+  `"Warning: could not resolve user groups: <err>"` to stderr and pass `nil` for groups
+  (resolver still built with users and channels). Pass groups slice as third argument to
+  `slack.NewResolver(users, channels, groups)`.
+
+- [ ] T033 [P] [US4] Update all existing `NewResolver(users, channels)` call sites to pass
+  the groups argument. Affected files: `internal/output/format_test.go` (fixtureResolver and
+  any direct NewResolver calls — pass `nil`), `internal/slack/resolver_test.go` (all
+  `NewResolver(…)` calls — pass `nil` for the groups arg). Compile-check with
+  `go build ./...`.
+
+**Checkpoint**: `go test -race ./...` passes. `<!subteam^ID>` tokens with no embedded label
+resolve to `@handle` when the group is cached. `--no-cache` still produces `@[group]`.
+US4 is fully functional and independently verified.
+
+---
+
 ## Dependencies & Execution Order
 
 ### Phase Dependencies
@@ -160,12 +231,14 @@ without panics. US3 is fully functional.
 - **Phase 4 (US2)**: Depends on Phase 3 completion (reuses output/cmd changes)
 - **Phase 5 (US3)**: Depends on Phase 3 completion; some tests may already pass
 - **Phase 6 (Polish)**: Depends on all user story phases
+- **Phase 8 (US4)**: Depends on Phase 7 completion (builds on existing Resolver/buildResolver)
 
 ### User Story Dependencies
 
 - **US1 (P1)**: Requires Foundational (T001–T002). Can start after Phase 2.
 - **US2 (P2)**: Requires US1 completion (shares `PrintMessages` signature change).
 - **US3 (P3)**: Requires US1 completion (verifies nil-resolver path).
+- **US4 (P4)**: Requires Phase 7 completion. T026–T027 can start in parallel; T028 requires T026; T029 requires T027; T030 requires T029; T031 requires T030; T032 requires T030; T033 requires T030 (compile-fix).
 
 ### Within Each Phase
 
@@ -176,12 +249,15 @@ without panics. US3 is fully functional.
 - T008 before T009–T011 (`buildResolver` helper before cmds use it)
 - T012 before T013–T014 (failing tests before implementation)
 - T015–T016 before T017 (failing tests before implementation)
+- T026 before T028; T029 before T030–T033; T027 before T029; T030 before T031, T032, T033
 
 ### Parallel Opportunities
 
 - T006 and T007 touch distinct functions in the same file — coordinate but can be drafted together
 - T009, T010, T011 touch three different `cmd/` files — can proceed in parallel after T008
 - T018, T019, T020 (Polish) can run concurrently
+- T026 and T027 (US4 setup) touch different files — can run in parallel
+- T031 and T032 and T033 all depend on T030 but touch different files — can run in parallel
 
 ---
 
@@ -192,6 +268,24 @@ After T008 (buildResolver) is complete, launch in parallel:
   T009 — update cmd/history.go + cmd/history_test.go
   T010 — update cmd/messages.go + cmd/messages_test.go
   T011 — update cmd/search.go + cmd/search_test.go
+```
+
+## Parallel Execution Example: User Story 4
+
+```text
+Start in parallel:
+  T026 — write ListUserGroups API tests (internal/slack/usergroups_test.go)
+  T027 — add UserGroup type to internal/slack/types.go
+
+After T026 passes: T028 — implement ListUserGroups
+After T027 passes: T029 — write resolver group tests
+
+After T028 and T029 pass: T030 — update NewResolver signature
+
+After T030 passes, launch in parallel:
+  T031 — update ResolveMentions subteam path
+  T032 — update buildResolver in cmd/resolver.go
+  T033 — update all NewResolver call sites (compile-fix)
 ```
 
 ---
@@ -211,6 +305,7 @@ After T008 (buildResolver) is complete, launch in parallel:
 2. Phase 4 (US2): channels resolved in messages/history JSON
 3. Phase 5 (US3): degradation verified; `--no-cache` safe
 4. Phase 6 (Polish): lint + build checks; PR-ready
+5. Phase 8 (US4): user groups cached and resolved in `<!subteam^ID>` tokens
 
 ---
 
@@ -222,3 +317,5 @@ After T008 (buildResolver) is complete, launch in parallel:
 - `buildResolver` returns `nil` (not an error) on failure — output gracefully degrades to raw IDs.
 - `MessageJSON.channel_name` is already present in the struct; this feature populates it for history context (previously empty).
 - Do not add `user_display_name` to `channelJSON` or `userJSON` — those types already show names.
+- `ListUserGroups` does not require pagination — Slack returns all user groups in a single call.
+- T033 is a compile-fix only; it passes `nil` for the new groups arg at existing call sites that do not need group resolution.
