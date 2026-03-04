@@ -106,12 +106,12 @@ func TestAuthExport_OutputFormat(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	// Expect: export SLACK_TOKEN_ACME_CORP=xoxs-111-222-333-444444
-	if !strings.Contains(stdout, "export SLACK_TOKEN_") {
-		t.Errorf("expected 'export SLACK_TOKEN_*' prefix, stdout:\n%s", stdout)
+	if !strings.Contains(stdout, "export SLACK_TOKEN_ACME_CORP=xoxs-111-222-333-444444") {
+		t.Errorf("expected SLACK_TOKEN export line, stdout:\n%s", stdout)
 	}
-	// Full token must appear in export output (not truncated).
-	if !strings.Contains(stdout, "xoxs-111-222-333-444444") {
-		t.Errorf("expected full token in export output, stdout:\n%s", stdout)
+	// Expect: export SLACK_COOKIE_ACME_CORP=abcdef12
+	if !strings.Contains(stdout, "export SLACK_COOKIE_ACME_CORP=abcdef12") {
+		t.Errorf("expected SLACK_COOKIE export line, stdout:\n%s", stdout)
 	}
 }
 

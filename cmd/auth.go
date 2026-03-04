@@ -63,6 +63,7 @@ func newAuthExportCmd(extractFn func() (tokens.TokenExtractionResult, error)) *c
 			for _, ws := range result.Workspaces {
 				envName := toEnvName(ws.Name)
 				fmt.Fprintf(cmd.OutOrStdout(), "export SLACK_TOKEN_%s=%s\n", envName, ws.Token)
+				fmt.Fprintf(cmd.OutOrStdout(), "export SLACK_COOKIE_%s=%s\n", envName, ws.Cookie)
 			}
 			return nil
 		},
