@@ -435,3 +435,338 @@ func TestPrintSearchResultsJSON(t *testing.T) {
 		t.Error("expected 'channel_name' field in search result JSON")
 	}
 }
+
+// T010: tableSafe unit tests
+func TestTableSafe_CollapseNewlines(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+		n     int
+		want  string
+	}{
+		{"newline collapsed", "hello\nworld", 100, "hello world"},
+		{"crlf collapsed", "hello\r\nworld", 100, "hello world"},
+		{"tab collapsed", "hello\tworld", 100, "hello world"},
+		{"leading trailing space stripped", "  hello world  ", 100, "hello world"},
+		{"truncated at rune limit", "hello world foo bar", 10, "hello worl…"},
+		{"multi newline", "a\n\nb\n\nc", 100, "a b c"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := output.TableSafe(c.input, c.n)
+			if got != c.want {
+				t.Errorf("TableSafe(%q, %d) = %q, want %q", c.input, c.n, got, c.want)
+			}
+		})
+	}
+}
+
+func TestPrintMessages_TableDoesNotSplitNewlines(t *testing.T) {
+	t0, _ := time.Parse(time.RFC3339, "2025-01-15T09:30:00Z")
+	msgs := []slack.Message{
+		{
+			Timestamp: "1736936400.000001",
+			Time:      t0,
+			UserID:    "U01234567",
+			Text:      "line one\nline two\nline three",
+			ChannelID: "C01234567",
+		},
+	}
+	var buf bytes.Buffer
+	if err := output.PrintMessages(&buf, output.FormatTable, msgs, nil); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	// "line two" should NOT appear at column 0 on its own line in a table context
+	// Instead, it should all be on one collapsed row
+	if strings.Contains(out, "\nline two") {
+		t.Errorf("expected multi-line message to be collapsed in table, but got raw newlines:\n%s", out)
+	}
+}
+
+func TestPrintSearchResults_TableDoesNotSplitNewlines(t *testing.T) {
+	t0, _ := time.Parse(time.RFC3339, "2025-01-15T09:30:00Z")
+	results := []slack.SearchResult{
+		{
+			Message: slack.Message{
+				Timestamp:   "1736936400.000001",
+				Time:        t0,
+				UserID:      "U01234567",
+				Text:        "first line\nsecond line",
+				ChannelID:   "C01234567",
+				ChannelName: "general",
+			},
+			Permalink: "https://example.com/p1",
+		},
+	}
+	var buf bytes.Buffer
+	if err := output.PrintSearchResults(&buf, output.FormatTable, results, nil); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if strings.Contains(out, "\nsecond line") {
+		t.Errorf("expected multi-line search result to be collapsed in table, but got raw newlines:\n%s", out)
+	}
+}
+
+// T006: resolveMessageFields DM channel name tests
+
+func fixtureDMMessages() []slack.Message {
+	t0, _ := time.Parse(time.RFC3339, "2025-01-15T09:30:00Z")
+	return []slack.Message{{
+		Timestamp: "1736936400.000001", Time: t0,
+		UserID: "U01ABCDEF", Text: "Hello",
+		ChannelID: "D00000001", ChannelName: "U01ABCDEF",
+	}}
+}
+
+func fixtureDMResolver() *slack.Resolver {
+	return slack.NewResolver([]slack.User{{ID: "U01ABCDEF", RealName: "Nick Mollenkopf"}}, []slack.Channel{}, nil)
+}
+
+func TestPrintMessages_DMChannelName_Text(t *testing.T) {
+	var buf bytes.Buffer
+	if err := output.PrintMessages(&buf, output.FormatText, fixtureDMMessages(), fixtureDMResolver()); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "@Nick Mollenkopf") {
+		t.Errorf("expected '@Nick Mollenkopf' for DM channel in text, got:\n%s", buf.String())
+	}
+}
+
+func TestPrintMessages_DMChannelName_Table(t *testing.T) {
+	var buf bytes.Buffer
+	if err := output.PrintMessages(&buf, output.FormatTable, fixtureDMMessages(), fixtureDMResolver()); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "@Nick Mollenkopf") {
+		t.Errorf("expected '@Nick Mollenkopf' for DM channel in table, got:\n%s", buf.String())
+	}
+}
+
+func TestPrintMessages_DMChannelName_JSON(t *testing.T) {
+	var buf bytes.Buffer
+	if err := output.PrintMessages(&buf, output.FormatJSON, fixtureDMMessages(), fixtureDMResolver()); err != nil {
+		t.Fatal(err)
+	}
+	var result []map[string]interface{}
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("expected valid JSON: %v\noutput: %s", err, buf.String())
+	}
+	if result[0]["channel_name"] != "@Nick Mollenkopf" {
+		t.Errorf("JSON: expected channel_name '@Nick Mollenkopf', got %v", result[0]["channel_name"])
+	}
+}
+
+// T014: groupByThread unit tests
+
+func TestGroupByThread_EmptyInput(t *testing.T) {
+	roots, replies := output.GroupByThread(nil)
+	if len(roots) != 0 {
+		t.Errorf("expected 0 roots, got %d", len(roots))
+	}
+	if len(replies) != 0 {
+		t.Errorf("expected 0 replies, got %d", len(replies))
+	}
+}
+
+func TestGroupByThread_AllRootMessages(t *testing.T) {
+	msgs := []slack.Message{
+		{Timestamp: "100.000001"},
+		{Timestamp: "200.000001"},
+	}
+	roots, replies := output.GroupByThread(msgs)
+	if len(roots) != 2 {
+		t.Errorf("expected 2 roots, got %d", len(roots))
+	}
+	if len(replies) != 0 {
+		t.Errorf("expected 0 replies, got %d", len(replies))
+	}
+}
+
+func TestGroupByThread_MixedRootsAndReplies(t *testing.T) {
+	msgs := []slack.Message{
+		{Timestamp: "100.000001", ThreadTS: ""},
+		{Timestamp: "101.000001", ThreadTS: "100.000001"},
+		{Timestamp: "200.000001", ThreadTS: ""},
+	}
+	roots, replies := output.GroupByThread(msgs)
+	if len(roots) != 2 {
+		t.Errorf("expected 2 roots, got %d", len(roots))
+	}
+	if len(replies["100.000001"]) != 1 {
+		t.Errorf("expected 1 reply for root 100.000001, got %d", len(replies["100.000001"]))
+	}
+}
+
+func TestGroupByThread_RootWithSameThreadTS(t *testing.T) {
+	// A message where ThreadTS == Timestamp is the thread parent (root).
+	msgs := []slack.Message{
+		{Timestamp: "100.000001", ThreadTS: "100.000001"},
+		{Timestamp: "101.000001", ThreadTS: "100.000001"},
+	}
+	roots, replies := output.GroupByThread(msgs)
+	if len(roots) != 1 {
+		t.Errorf("expected 1 root, got %d", len(roots))
+	}
+	if len(replies["100.000001"]) != 1 {
+		t.Errorf("expected 1 reply, got %d", len(replies["100.000001"]))
+	}
+}
+
+// T015: PrintMessages text format thread integration test
+
+func TestPrintMessages_TextThreadGroupingWithIndentation(t *testing.T) {
+	t0, _ := time.Parse(time.RFC3339, "2025-01-15T09:00:00Z")
+	t1, _ := time.Parse(time.RFC3339, "2025-01-15T09:01:00Z")
+	t2, _ := time.Parse(time.RFC3339, "2025-01-15T09:02:00Z")
+	msgs := []slack.Message{
+		{Timestamp: "1736934000.000001", Time: t0, UserID: "U001", Text: "root message", ThreadTS: ""},
+		{Timestamp: "1736934060.000001", Time: t1, UserID: "U002", Text: "reply to root", ThreadTS: "1736934000.000001"},
+		{Timestamp: "1736934120.000001", Time: t2, UserID: "U003", Text: "another root", ThreadTS: ""},
+	}
+	var buf bytes.Buffer
+	if err := output.PrintMessages(&buf, output.FormatText, msgs, nil); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "└─") {
+		t.Errorf("expected '└─' prefix for replies in text output:\n%s", out)
+	}
+	if !strings.Contains(out, "reply to root") {
+		t.Errorf("expected reply text in output:\n%s", out)
+	}
+}
+
+// T016: PrintMessages JSON format thread integration test
+
+func TestPrintMessages_JSONThreadGroupingWithReplies(t *testing.T) {
+	t0, _ := time.Parse(time.RFC3339, "2025-01-15T09:00:00Z")
+	t1, _ := time.Parse(time.RFC3339, "2025-01-15T09:01:00Z")
+	msgs := []slack.Message{
+		{Timestamp: "1736934000.000001", Time: t0, UserID: "U001", Text: "root message", ThreadTS: ""},
+		{Timestamp: "1736934060.000001", Time: t1, UserID: "U002", Text: "reply to root", ThreadTS: "1736934000.000001"},
+	}
+	var buf bytes.Buffer
+	if err := output.PrintMessages(&buf, output.FormatJSON, msgs, nil); err != nil {
+		t.Fatal(err)
+	}
+	var result []map[string]interface{}
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("expected valid JSON: %v\noutput: %s", err, buf.String())
+	}
+	if len(result) != 1 {
+		t.Errorf("expected 1 root message in JSON top-level, got %d", len(result))
+	}
+	replies, ok := result[0]["replies"]
+	if !ok {
+		t.Error("expected 'replies' field in root message JSON")
+	}
+	repliesSlice, ok := replies.([]interface{})
+	if !ok || len(repliesSlice) != 1 {
+		t.Errorf("expected 1 reply, got %v", replies)
+	}
+}
+
+// T022: PrintMessages markdown format test
+
+func TestPrintMessages_MarkdownFormat(t *testing.T) {
+	t0, _ := time.Parse(time.RFC3339, "2025-01-15T09:00:00Z")
+	t1, _ := time.Parse(time.RFC3339, "2025-01-15T09:01:00Z")
+	msgs := []slack.Message{
+		{
+			Timestamp: "1736934000.000001",
+			Time:      t0,
+			UserID:    "U001",
+			Text:      "root message",
+			ChannelID: "C001",
+			ThreadTS:  "1736934000.000001",
+		},
+		{
+			Timestamp: "1736934060.000001",
+			Time:      t1,
+			UserID:    "U002",
+			Text:      "reply text",
+			ChannelID: "C001",
+			ThreadTS:  "1736934000.000001",
+		},
+	}
+	channels := []slack.Channel{{ID: "C001", Name: "general"}}
+	resolver := slack.NewResolver(nil, channels, nil)
+
+	var buf bytes.Buffer
+	if err := output.PrintMessages(&buf, output.FormatMarkdown, msgs, resolver); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "# #general") {
+		t.Errorf("expected '# #general' heading in markdown:\n%s", out)
+	}
+	if !strings.Contains(out, "##") {
+		t.Errorf("expected '##' root heading in markdown:\n%s", out)
+	}
+	if !strings.Contains(out, ">") {
+		t.Errorf("expected '>' block quote for reply in markdown:\n%s", out)
+	}
+	if !strings.Contains(out, "---") {
+		t.Errorf("expected '---' separator in markdown:\n%s", out)
+	}
+}
+
+// T023: PrintSearchResults markdown format test
+
+func TestPrintSearchResults_MarkdownFormat(t *testing.T) {
+	t0, _ := time.Parse(time.RFC3339, "2025-01-15T09:30:00Z")
+	results := []slack.SearchResult{
+		{
+			Message: slack.Message{
+				Timestamp:   "1736936400.000001",
+				Time:        t0,
+				UserID:      "U001",
+				Text:        "search result text",
+				ChannelID:   "C001",
+				ChannelName: "general",
+			},
+			Permalink: "https://acme.slack.com/archives/C001/p123",
+		},
+	}
+	var buf bytes.Buffer
+	if err := output.PrintSearchResults(&buf, output.FormatMarkdown, results, nil); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "# Search results") {
+		t.Errorf("expected '# Search results' heading:\n%s", out)
+	}
+	if !strings.Contains(out, "##") {
+		t.Errorf("expected '##' result heading:\n%s", out)
+	}
+	if !strings.Contains(out, "View in Slack") {
+		t.Errorf("expected 'View in Slack' permalink:\n%s", out)
+	}
+	if !strings.Contains(out, "---") {
+		t.Errorf("expected '---' separator:\n%s", out)
+	}
+}
+
+// T024: PrintChannels and PrintUsers with markdown format fall through to text
+
+func TestPrintChannels_MarkdownFallsThrough(t *testing.T) {
+	var buf bytes.Buffer
+	if err := output.PrintChannels(&buf, output.FormatMarkdown, fixtureChannels()); err != nil {
+		t.Fatal(err)
+	}
+	if buf.String() == "" {
+		t.Error("expected non-empty output for channels with markdown format")
+	}
+}
+
+func TestPrintUsers_MarkdownFallsThrough(t *testing.T) {
+	var buf bytes.Buffer
+	if err := output.PrintUsers(&buf, output.FormatMarkdown, fixtureUsers()); err != nil {
+		t.Fatal(err)
+	}
+	if buf.String() == "" {
+		t.Error("expected non-empty output for users with markdown format")
+	}
+}

@@ -17,13 +17,14 @@ import (
 type Format string
 
 const (
-	FormatText  Format = "text"
-	FormatTable Format = "table"
-	FormatJSON  Format = "json"
+	FormatText     Format = "text"
+	FormatTable    Format = "table"
+	FormatJSON     Format = "json"
+	FormatMarkdown Format = "markdown"
 )
 
 // ValidFormats lists all accepted --format values.
-var ValidFormats = []Format{FormatText, FormatTable, FormatJSON}
+var ValidFormats = []Format{FormatText, FormatTable, FormatJSON, FormatMarkdown}
 
 // truncate returns the first n runes of s followed by "…" if s is longer than n.
 func truncate(s string, n int) string {
@@ -32,6 +33,13 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return string(runes[:n]) + "…"
+}
+
+// TableSafe collapses all whitespace (newlines, tabs, multiple spaces) in s
+// to single spaces using strings.Fields, then truncates to n runes.
+// This prevents multi-line messages from breaking table cell alignment.
+func TableSafe(s string, n int) string {
+	return truncate(strings.Join(strings.Fields(s), " "), n)
 }
 
 // formatReactions formats a reaction slice as "name×count name×count".
@@ -77,6 +85,7 @@ type messageJSON struct {
 	ThreadTS        string         `json:"thread_ts"`
 	ThreadDepth     int            `json:"thread_depth"`
 	Reactions       []reactionJSON `json:"reactions"`
+	Replies         []messageJSON  `json:"replies,omitempty"`
 }
 
 type searchResultJSON struct {
@@ -191,10 +200,23 @@ func resolveMessageFields(m slack.Message, resolver *slack.Resolver) (userDispla
 	text = m.Text
 	if resolver != nil {
 		userDisplay = resolver.UserDisplayName(m.UserID)
-		if channelDisplay == "" {
-			channelDisplay = resolver.ChannelName(m.ChannelID)
-		}
+		channelDisplay = resolver.ResolveChannelDisplay(m.ChannelID, m.ChannelName)
 		text = resolver.ResolveMentions(text)
+	}
+	return
+}
+
+// GroupByThread separates messages into root messages and a replies map.
+// A message is a root if its ThreadTS is empty or equals its own Timestamp.
+// The replies map is keyed by parent Timestamp. O(n) single pass.
+func GroupByThread(msgs []slack.Message) (roots []slack.Message, replies map[string][]slack.Message) {
+	replies = make(map[string][]slack.Message)
+	for _, m := range msgs {
+		if m.ThreadTS == "" || m.ThreadTS == m.Timestamp {
+			roots = append(roots, m)
+		} else {
+			replies[m.ThreadTS] = append(replies[m.ThreadTS], m)
+		}
 	}
 	return
 }
@@ -206,36 +228,71 @@ func resolveMessageFields(m slack.Message, resolver *slack.Resolver) (userDispla
 func PrintMessages(w io.Writer, format Format, messages []slack.Message, resolver *slack.Resolver) error {
 	switch format {
 	case FormatJSON:
-		out := make([]messageJSON, len(messages))
-		for i, m := range messages {
-			out[i] = toMessageJSON(m, resolver)
-		}
-		return writeJSON(w, out)
+		return printMessagesJSON(w, messages, resolver)
 	case FormatTable:
-		tbl := tablewriter.NewWriter(w)
-		tbl.Header([]string{"Timestamp", "User", "Channel", "Text", "Depth", "Reactions"})
-		rows := make([][]string, len(messages))
-		for i, m := range messages {
-			user, ch, text := resolveMessageFields(m, resolver)
-			rows[i] = []string{
-				m.Time.Format(time.RFC3339),
-				user, ch,
-				truncate(text, 80),
-				strconv.Itoa(m.ThreadDepth),
-				formatReactions(m.Reactions),
+		return printMessagesTable(w, messages, resolver)
+	case FormatMarkdown:
+		return printMessagesMarkdown(w, messages, resolver)
+	default: // FormatText
+		return printMessagesText(w, messages, resolver)
+	}
+}
+
+func printMessagesJSON(w io.Writer, messages []slack.Message, resolver *slack.Resolver) error {
+	roots, replies := GroupByThread(messages)
+	out := make([]messageJSON, len(roots))
+	for i, m := range roots {
+		mj := toMessageJSON(m, resolver)
+		if reps, ok := replies[m.Timestamp]; ok {
+			mj.Replies = make([]messageJSON, len(reps))
+			for j, r := range reps {
+				mj.Replies[j] = toMessageJSON(r, resolver)
 			}
 		}
-		if err := tbl.Bulk(rows); err != nil {
-			return fmt.Errorf("building messages table: %w", err)
-		}
-		return tbl.Render()
-	default: // FormatText
-		for _, m := range messages {
-			user, ch, text := resolveMessageFields(m, resolver)
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", m.Time.Format(time.RFC3339), user, ch, text)
-		}
-		return nil
+		out[i] = mj
 	}
+	return writeJSON(w, out)
+}
+
+func printMessagesTable(w io.Writer, messages []slack.Message, resolver *slack.Resolver) error {
+	tbl := tablewriter.NewWriter(w)
+	tbl.Header([]string{"Timestamp", "User", "Channel", "Text", "Depth", "Reactions"})
+	roots, replies := GroupByThread(messages)
+	var rows [][]string
+	for _, m := range roots {
+		user, ch, text := resolveMessageFields(m, resolver)
+		rows = append(rows, []string{
+			m.Time.Format(time.RFC3339), user, ch,
+			TableSafe(text, 80), strconv.Itoa(m.ThreadDepth), formatReactions(m.Reactions),
+		})
+		for _, reply := range replies[m.Timestamp] {
+			rUser, rCh, rText := resolveMessageFields(reply, resolver)
+			rows = append(rows, []string{
+				reply.Time.Format(time.RFC3339), rUser, rCh,
+				"  └─ " + TableSafe(rText, 75), strconv.Itoa(reply.ThreadDepth), formatReactions(reply.Reactions),
+			})
+		}
+	}
+	if err := tbl.Bulk(rows); err != nil {
+		return fmt.Errorf("building messages table: %w", err)
+	}
+	return tbl.Render()
+}
+
+func printMessagesText(w io.Writer, messages []slack.Message, resolver *slack.Resolver) error {
+	roots, replies := GroupByThread(messages)
+	for i, m := range roots {
+		user, ch, text := resolveMessageFields(m, resolver)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", m.Time.Format(time.RFC3339), user, ch, text)
+		for _, reply := range replies[m.Timestamp] {
+			rUser, _, rText := resolveMessageFields(reply, resolver)
+			fmt.Fprintf(w, "  └─ %s\t%s\t%s\n", reply.Time.Format(time.RFC3339), rUser, rText)
+		}
+		if i < len(roots)-1 {
+			fmt.Fprintln(w)
+		}
+	}
+	return nil
 }
 
 // toSearchResultJSON converts a SearchResult to its JSON representation.
@@ -279,7 +336,7 @@ func PrintSearchResults(w io.Writer, format Format, results []slack.SearchResult
 				sr.Time.Format(time.RFC3339),
 				sr.ChannelName,
 				user,
-				truncate(text, 80),
+				TableSafe(text, 80),
 				sr.Permalink,
 			}
 		}
@@ -287,6 +344,8 @@ func PrintSearchResults(w io.Writer, format Format, results []slack.SearchResult
 			return fmt.Errorf("building search results table: %w", err)
 		}
 		return tbl.Render()
+	case FormatMarkdown:
+		return printSearchResultsMarkdown(w, results, resolver)
 	default: // FormatText
 		for _, sr := range results {
 			user, _, text := resolveMessageFields(sr.Message, resolver)
@@ -342,6 +401,67 @@ func PrintUsers(w io.Writer, format Format, users []slack.User) error {
 
 // --- helpers ---
 
+// printMessagesMarkdown writes messages as a Markdown document.
+// Root messages become ## headings; replies become > block quotes.
+func printMessagesMarkdown(w io.Writer, messages []slack.Message, resolver *slack.Resolver) error {
+	if len(messages) == 0 {
+		return nil
+	}
+	ch := messages[0].ChannelName
+	if ch == "" && resolver != nil {
+		ch = resolver.ChannelName(messages[0].ChannelID)
+	}
+	date := messages[0].Time.Format("2006-01-02")
+	allSameDate := true
+	for _, m := range messages[1:] {
+		if m.Time.Format("2006-01-02") != date {
+			allSameDate = false
+			break
+		}
+	}
+	if allSameDate {
+		fmt.Fprintf(w, "# #%s — %s\n\n", ch, date)
+	} else {
+		fmt.Fprintf(w, "# #%s\n\n", ch)
+	}
+	roots, replies := GroupByThread(messages)
+	for _, m := range roots {
+		user, _, text := resolveMessageFields(m, resolver)
+		fmt.Fprintf(w, "## %s · %s\n\n%s\n", m.Time.Format(time.RFC3339), user, text)
+		if len(m.Reactions) > 0 {
+			fmt.Fprintf(w, "\n_%s_\n", formatReactions(m.Reactions))
+		}
+		for _, reply := range replies[m.Timestamp] {
+			rUser, _, rText := resolveMessageFields(reply, resolver)
+			fmt.Fprintf(w, "\n> **%s** · %s: %s\n", rUser, reply.Time.Format(time.RFC3339), rText)
+			if len(reply.Reactions) > 0 {
+				fmt.Fprintf(w, ">\n> _%s_\n", formatReactions(reply.Reactions))
+			}
+		}
+		fmt.Fprintf(w, "\n---\n")
+	}
+	return nil
+}
+
+// printSearchResultsMarkdown writes search results as a Markdown document.
+func printSearchResultsMarkdown(w io.Writer, results []slack.SearchResult, resolver *slack.Resolver) error {
+	fmt.Fprintf(w, "# Search results\n\n")
+	for _, sr := range results {
+		user, _, text := resolveMessageFields(sr.Message, resolver)
+		date := sr.Time.Format("2006-01-02")
+		ch := sr.ChannelName
+		if ch == "" && resolver != nil {
+			ch = resolver.ChannelName(sr.ChannelID)
+		}
+		fmt.Fprintf(w, "## %s · %s · %s\n\n%s\n", date, ch, user, text)
+		if sr.Permalink != "" {
+			fmt.Fprintf(w, "\n[View in Slack](%s)\n", sr.Permalink)
+		}
+		fmt.Fprintf(w, "\n---\n")
+	}
+	return nil
+}
+
 func toMessageJSON(m slack.Message, resolver *slack.Resolver) messageJSON {
 	reactions := make([]reactionJSON, len(m.Reactions))
 	for i, r := range m.Reactions {
@@ -354,9 +474,7 @@ func toMessageJSON(m slack.Message, resolver *slack.Resolver) messageJSON {
 	channelName := m.ChannelName
 	text := m.Text
 	if resolver != nil {
-		if channelName == "" {
-			channelName = resolver.ChannelName(m.ChannelID)
-		}
+		channelName = resolver.ResolveChannelDisplay(m.ChannelID, m.ChannelName)
 		text = resolver.ResolveMentions(text)
 	}
 	return messageJSON{

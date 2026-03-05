@@ -215,3 +215,81 @@ func TestNewResolver_EmptySlicesReturnNonEmptyFallback(t *testing.T) {
 		t.Errorf("expected raw ID 'C123' from empty-slice resolver, got %q", got)
 	}
 }
+
+// T002: Tests for <@USERID|label> form in ResolveMentions
+func TestResolveMentions_MentionWithLabelResolvedViaMap(t *testing.T) {
+	users := []User{{ID: "U22JKTL6N", RealName: "Nick Mollenkopf"}}
+	r := NewResolver(users, nil, nil)
+	got := r.ResolveMentions("<@U22JKTL6N|nmollenkopf>")
+	want := "@Nick Mollenkopf"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestResolveMentions_MentionWithLabelFallsBackToLabelWhenIDUnknown(t *testing.T) {
+	r := NewResolver(nil, nil, nil)
+	got := r.ResolveMentions("<@UUNKNOWN|nmollenkopf>")
+	want := "@nmollenkopf"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestResolveMentions_MentionBareIDStillWorks(t *testing.T) {
+	users := []User{{ID: "U001", RealName: "Alice"}}
+	r := NewResolver(users, nil, nil)
+	got := r.ResolveMentions("<@U001>")
+	want := "@Alice"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestResolveMentions_MentionBareIDUnknownFallsBackToID(t *testing.T) {
+	r := NewResolver(nil, nil, nil)
+	got := r.ResolveMentions("<@UUNKNOWN>")
+	want := "@UUNKNOWN"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// T005: Tests for ResolveChannelDisplay
+func TestResolveChannelDisplay_UserIDNameResolvesToDisplayName(t *testing.T) {
+	users := []User{{ID: "U01ABCDEF", RealName: "Nick Mollenkopf"}}
+	r := NewResolver(users, nil, nil)
+	got := r.ResolveChannelDisplay("DM123", "U01ABCDEF")
+	want := "@Nick Mollenkopf"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestResolveChannelDisplay_UserIDNameNotInMapFallsBackToAtRawID(t *testing.T) {
+	r := NewResolver(nil, nil, nil)
+	got := r.ResolveChannelDisplay("DM123", "U01ABCDEF")
+	want := "@U01ABCDEF"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestResolveChannelDisplay_EmptyNameFallsThroughToChannelName(t *testing.T) {
+	channels := []Channel{{ID: "C001", Name: "general"}}
+	r := NewResolver(nil, channels, nil)
+	got := r.ResolveChannelDisplay("C001", "")
+	want := "general"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestResolveChannelDisplay_RegularChannelNameUnchanged(t *testing.T) {
+	r := NewResolver(nil, nil, nil)
+	got := r.ResolveChannelDisplay("C001", "general")
+	want := "general"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}

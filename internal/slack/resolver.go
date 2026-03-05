@@ -2,8 +2,11 @@ package slack
 
 import "regexp"
 
-// mentionPattern matches Slack inline user mention tokens: <@USERID>
-var mentionPattern = regexp.MustCompile(`<@([A-Z0-9]+)>`)
+// mentionPattern matches Slack inline user mention tokens: <@USERID> and <@USERID|label>
+var mentionPattern = regexp.MustCompile(`<@([A-Z0-9]+)(?:\|([^>]+))?>`)
+
+// userIDPattern matches Slack user ID strings used as DM channel names.
+var userIDPattern = regexp.MustCompile(`^U[A-Z0-9]+$`)
 
 // subteamPattern matches <!subteam^ID> and <!subteam^ID|label> tokens.
 // Group 1 captures the group ID; group 2 captures the optional label.
@@ -71,6 +74,23 @@ func (r *Resolver) ChannelName(id string) string {
 	return id
 }
 
+// ResolveChannelDisplay returns the display string for a channel.
+// If name matches a Slack user ID pattern (DM channel), it is resolved to
+// "@DisplayName" (or "@rawID" if not in the user map). If name is empty,
+// it falls through to ChannelName(id). Otherwise name is returned unchanged.
+func (r *Resolver) ResolveChannelDisplay(id, name string) string {
+	if userIDPattern.MatchString(name) {
+		if display, ok := r.users[name]; ok {
+			return "@" + display
+		}
+		return "@" + name
+	}
+	if name == "" {
+		return r.ChannelName(id)
+	}
+	return name
+}
+
 // ResolveMentions replaces Slack markup tokens in text with human-readable forms:
 //   - <@USERID>                        → @Real Name (or @USERID if unresolved)
 //   - <!subteam^ID|@handle>            → @handle
@@ -80,8 +100,15 @@ func (r *Resolver) ChannelName(id string) string {
 //   - <https://url>                    → https://url
 func (r *Resolver) ResolveMentions(text string) string {
 	text = mentionPattern.ReplaceAllStringFunc(text, func(match string) string {
-		id := match[2 : len(match)-1] // strip "<@" and ">"
-		return "@" + r.UserDisplayName(id)
+		subs := mentionPattern.FindStringSubmatch(match)
+		id := subs[1]
+		if name, ok := r.users[id]; ok {
+			return "@" + name
+		}
+		if len(subs) > 2 && subs[2] != "" {
+			return "@" + subs[2] // embedded label fallback
+		}
+		return "@" + id // raw ID last resort
 	})
 	text = subteamPattern.ReplaceAllStringFunc(text, func(match string) string {
 		subs := subteamPattern.FindStringSubmatch(match)

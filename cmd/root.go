@@ -56,7 +56,7 @@ func buildRootCmd() *cobra.Command {
 	}
 
 	root.PersistentFlags().StringVarP(&flagWorkspace, "workspace", "w", "", "workspace name or base URL to target")
-	root.PersistentFlags().StringVar(&flagFormat, "format", "text", "output format: text | table | json")
+	root.PersistentFlags().StringVar(&flagFormat, "format", "text", "output format: text | table | json | markdown")
 	root.PersistentFlags().StringVar(&flagFrom, "from", "", "start of date range: YYYY-MM-DD or RFC 3339")
 	root.PersistentFlags().StringVar(&flagTo, "to", "", "end of date range: YYYY-MM-DD or RFC 3339")
 	root.PersistentFlags().DurationVar(&flagCacheTTL, "cache-ttl", 24*time.Hour, "how long cached channel/user lists remain valid (0 disables caching)")
@@ -91,7 +91,7 @@ func validateFormat(f string) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("invalid --format %q: must be one of text, table, json", f)
+	return fmt.Errorf("invalid --format %q: must be one of text, table, json, markdown", f)
 }
 
 // rootCmd is the singleton used by main.go.
