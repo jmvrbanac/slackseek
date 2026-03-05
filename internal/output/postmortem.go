@@ -4,10 +4,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"regexp"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/jmvrbanac/slackseek/internal/slack"
+)
+
+// incidentKeywords matches messages that are likely incident events.
+var incidentKeywords = regexp.MustCompile(
+	`(?i)\b(deploy|rollback|hotfix|revert|alert|page[d]?|escalat|` +
+		`investigat|identif|mitigat|resolv|incident|outage|degraded|` +
+		`down|restored|fix(?:ed)?|root.?cause|postmortem|on.?call|` +
+		`sev[0-9]|p[0-9] )\b`,
 )
 
 // IncidentDoc is the structured postmortem document.
@@ -65,9 +75,25 @@ func buildParticipantList(messages []slack.Message, resolver *slack.Resolver) []
 	return participants
 }
 
+// isSignificant returns true if a message warrants inclusion in the timeline:
+// it has thread replies, has at least one reaction, or matches incident keywords.
+func isSignificant(m slack.Message, replyCount int) bool {
+	if replyCount > 0 {
+		return true
+	}
+	if len(m.Reactions) > 0 {
+		return true
+	}
+	return incidentKeywords.MatchString(m.Text)
+}
+
 func buildTimeline(roots []slack.Message, replies map[string][]slack.Message, resolver *slack.Resolver) []TimelineRow {
 	timeline := make([]TimelineRow, 0, len(roots))
 	for _, m := range roots {
+		replyCount := len(replies[m.Timestamp])
+		if !isSignificant(m, replyCount) {
+			continue
+		}
 		_, _, text := resolveMessageFields(m, resolver)
 		who := m.UserID
 		if resolver != nil {
@@ -77,7 +103,7 @@ func buildTimeline(roots []slack.Message, replies map[string][]slack.Message, re
 			Time:    m.Time,
 			Who:     who,
 			Event:   text,
-			Replies: len(replies[m.Timestamp]),
+			Replies: replyCount,
 		})
 	}
 	return timeline
@@ -93,35 +119,33 @@ func PrintPostmortem(w io.Writer, fmt Format, doc IncidentDoc) error {
 	}
 }
 
+// unescapeHTML replaces common HTML entities left in Slack message text.
+func unescapeHTML(s string) string {
+	s = strings.ReplaceAll(s, "&amp;", "&")
+	s = strings.ReplaceAll(s, "&lt;", "<")
+	s = strings.ReplaceAll(s, "&gt;", ">")
+	s = strings.ReplaceAll(s, "&quot;", `"`)
+	s = strings.ReplaceAll(s, "&#39;", "'")
+	return s
+}
+
 func printPostmortemMarkdown(w io.Writer, doc IncidentDoc) error {
 	fmt.Fprintf(w, "# Incident: %s\n\n", doc.Channel)
 	fmt.Fprintf(w, "**Period:** %s UTC – %s UTC\n",
 		doc.PeriodFrom.UTC().Format("2006-01-02 15:04"),
 		doc.PeriodTo.UTC().Format("2006-01-02 15:04"),
 	)
-	fmt.Fprintf(w, "**Participants:** ")
-	for i, p := range doc.Participants {
-		if i > 0 {
-			fmt.Fprintf(w, ", ")
-		}
-		fmt.Fprintf(w, "%s", p)
-	}
-	fmt.Fprintf(w, "\n\n## Timeline\n\n")
-	fmt.Fprintf(w, "| Time (UTC)       | Who   | Event                                     |\n")
-	fmt.Fprintf(w, "|------------------|-------|-------------------------------------------|\n")
+	fmt.Fprintf(w, "**Participants:** %s\n", strings.Join(doc.Participants, ", "))
+	fmt.Fprintf(w, "\n## Timeline\n")
 	for _, row := range doc.Timeline {
-		event := row.Event
-		if len([]rune(event)) > 40 {
-			event = string([]rune(event)[:40]) + "…"
-		}
+		fmt.Fprintf(w, "\n---\n")
+		header := fmt.Sprintf("**%s UTC** · %s",
+			row.Time.UTC().Format("2006-01-02 15:04"), row.Who)
 		if row.Replies > 0 {
-			event = fmt.Sprintf("%s (%d replies)", event, row.Replies)
+			header = fmt.Sprintf("%s  _(%d replies)_", header, row.Replies)
 		}
-		fmt.Fprintf(w, "| %s | %-5s | %-41s |\n",
-			row.Time.UTC().Format("2006-01-02 15:04"),
-			truncate(row.Who, 5),
-			event,
-		)
+		fmt.Fprintf(w, "%s\n\n", header)
+		fmt.Fprintf(w, "%s\n", unescapeHTML(row.Event))
 	}
 	return nil
 }

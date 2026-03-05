@@ -174,16 +174,28 @@ to attach to a postmortem ticket.
 foundations. Delivers a turnkey postmortem document.
 
 **Independent Test**: `slackseek postmortem ic-5697` prints a Markdown
-document with period, participants, and a timeline table.
+document with period, participants, and a chronological timeline of
+significant events.
 
 **Acceptance Scenarios**:
 
 1. **Given** a channel name, **When** the command runs, **Then** a Markdown
    document is produced with `# Incident: <channel>`, period, participant
-   list, and timeline table.
-2. **Given** `--since` / `--until` flags, **When** the command runs, **Then**
+   list, and per-entry timeline blocks (not a table).
+2. **Given** the channel contains casual conversation, **When** the command
+   runs, **Then** only significant messages are included: those with thread
+   replies, at least one reaction, or text matching incident keywords
+   (`deploy`, `rollback`, `alert`, `paged`, `escalated`, `identified`,
+   `mitigated`, `resolved`, `outage`, `degraded`, `restored`, `fixed`,
+   `root cause`, `postmortem`, `on-call`, `sev[0-9]`, etc.).
+3. **Given** a message contains HTML entities (`&gt;`, `&lt;`, `&amp;`),
+   **When** rendered in the timeline, **Then** they are decoded to their
+   literal characters.
+4. **Given** a message contains newlines, **When** rendered in the timeline,
+   **Then** they are preserved (block format allows multi-line content).
+5. **Given** `--since` / `--until` flags, **When** the command runs, **Then**
    the timeline is scoped to that window.
-3. **Given** `--format json`, **When** the command runs, **Then** structured
+6. **Given** `--format json`, **When** the command runs, **Then** structured
    JSON with `period`, `participants`, and `timeline` arrays is emitted.
 
 ---
@@ -290,7 +302,11 @@ checklist of messages matching commitment patterns.
 - **FR-009**: `--emoji` / `--no-emoji` flag MUST control emoji rendering.
   Default MUST be on when `os.Stdout` is a tty, off otherwise.
 - **FR-010**: `slackseek postmortem <channel>` MUST produce a Markdown
-  incident document with period, participants, and timeline table.
+  incident document with period, participants, and a per-entry timeline.
+  Timeline MUST include only significant messages: those with thread replies,
+  at least one reaction, or text matching incident keywords. HTML entities
+  (`&gt;`, `&lt;`, `&amp;`, `&quot;`, `&#39;`) MUST be decoded before
+  rendering.
 - **FR-011**: `slackseek digest --user <name> --since <duration>` MUST
   produce per-channel message summaries using `GetUserMessages`.
 - **FR-012**: `slackseek metrics <channel>` MUST compute per-user counts,

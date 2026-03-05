@@ -287,6 +287,16 @@ slackseek actions general --since 7d | grep -c "\[ \]"
 
 ---
 
+## Phase 9b: Postmortem Quality Improvements (Post-Initial Implementation)
+
+**Purpose**: Improve postmortem output quality based on real-world output review.
+
+- [X] T052 [US7] Replace postmortem table format with per-entry block format in `printPostmortemMarkdown`: each timeline entry rendered as `---\n**timestamp UTC** · Who _(N replies)_\n\nevent text\n`; remove fixed-width table columns
+- [X] T053 [US7] Add significance filter to `buildTimeline` in `internal/output/postmortem.go`: skip root messages that have no replies, no reactions, and no incident keyword match; implement `isSignificant(m slack.Message, replyCount int) bool` and `incidentKeywords` regexp covering deploy, rollback, hotfix, alert, paged, escalated, identified, mitigated, resolved, outage, degraded, down, restored, fixed, root cause, postmortem, on-call, sev[0-9]
+- [X] T054 [US7] Add `unescapeHTML(s string) string` helper in `internal/output/postmortem.go` decoding `&amp;`, `&lt;`, `&gt;`, `&quot;`, `&#39;`; apply to event text before rendering in markdown output
+
+---
+
 ## Phase 13: Polish & Cross-Cutting Concerns
 
 **Purpose**: Documentation, build validation, and linter clean-up.
@@ -387,4 +397,4 @@ Parallel batch B (all different output files):
 - Each story phase ends with a checkpoint — validate the story before moving to the next priority
 - `go test -race ./...` must pass after every phase
 - `golangci-lint run` must pass before Polish phase is considered complete
-- Total task count: **51 tasks** across 13 phases
+- Total task count: **54 tasks** across 14 phases (T052–T054 added post-initial implementation)
