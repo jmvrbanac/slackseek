@@ -244,6 +244,52 @@ instead of the current conditional.
 - `internal/output/format.go` — update `resolveMessageFields` and
   `toMessageJSON` to use `ResolveChannelDisplay`.
 
+## 6. Proactive rate limiting to avoid API 429 stalls
+
+**Symptom:** Commands that paginate multiple API endpoints (channel list, history,
+search) stall silently. The `Retry-After` callback only logs waits longer than 30 s,
+so short waits appear as unexplained pauses.
+
+**Root cause:** The retry mechanism is purely reactive — it waits on a 429.
+For multi-page operations on large workspaces, rapid page fetches exceed Slack's
+tier limits before the first 429 is even received:
+
+| Method | Tier | Limit |
+|--------|------|-------|
+| `conversations.list` | 2 | 20+/min |
+| `users.list` | 2 | 20+/min |
+| `search.messages` | 2 | 20+/min |
+| `conversations.history` | 3 | 50+/min |
+| `conversations.replies` | 3 | 50+/min |
+
+**Fix:** Add a `rateLimiter` type to `internal/slack/client.go` that enforces a
+minimum interval between sequential calls. Two instances are added to `Client` —
+one per tier. The first call is always immediate; subsequent calls wait until the
+interval has elapsed. No goroutines, no channels — just a last-call timestamp.
+
+Conservative safe intervals (10% margin below the documented minimum):
+- Tier 2 → 18 req/min → ~3.3 s between pages
+- Tier 3 → 48 req/min → ~1.25 s between pages
+
+**Integration points:**
+- `ListChannels` — `tier2.Wait(ctx)` before each page in the pagination loop
+- `historyPageFetch` — `tier3.Wait(ctx)` before `callWithRetry`
+- `repliesPageFetch` — `tier3.Wait(ctx)` before `callWithRetry`
+- `SearchMessages` — `tier2.Wait(ctx)` before each page in the pagination loop
+- `ListUsers` — `tier2.Wait(ctx)` before `GetUsersContext`
+
+**Affected files:**
+- `internal/slack/client.go` — `rateLimiter` type; `tier2`/`tier3` fields on `Client`;
+  initialize in `NewClient`
+- `internal/slack/client_test.go` — unit tests for `rateLimiter`
+- `internal/slack/channels.go` — `Wait` calls in `ListChannels`, `historyPageFetch`,
+  `repliesPageFetch`
+- `internal/slack/search.go` — `Wait` call in `SearchMessages`
+- `internal/slack/users.go` — `Wait` call before `GetUsersContext`
+
+**Non-goals:** per-method limiters; shared state across concurrent invocations
+(CLI is single-command); burst credit — conservative sustained rate is sufficient.
+
 ## 5. Multi-line messages misalign in table view
 
 **Symptom:** A message containing newlines renders with continuation lines

@@ -68,6 +68,9 @@ func (c *Client) ListChannels(ctx context.Context, types []string, includeArchiv
 		}
 		var result []Channel
 		for {
+			if err := c.tier2.Wait(ctx); err != nil {
+				return nil, err
+			}
 			var channels []slackgo.Channel
 			var cursor string
 			err := c.callWithRetry(ctx, func() error {
@@ -166,6 +169,9 @@ func (c *Client) FetchHistory(ctx context.Context, channelID string, dr DateRang
 }
 
 func (c *Client) historyPageFetch(ctx context.Context, channelID, oldest, latest, cursor string) ([]slackgo.Message, bool, string, error) {
+	if err := c.tier3.Wait(ctx); err != nil {
+		return nil, false, "", err
+	}
 	var resp *slackgo.GetConversationHistoryResponse
 	err := c.callWithRetry(ctx, func() error {
 		var callErr error
@@ -186,6 +192,9 @@ func (c *Client) historyPageFetch(ctx context.Context, channelID, oldest, latest
 }
 
 func (c *Client) repliesPageFetch(ctx context.Context, channelID, threadTS, cursor string) ([]slackgo.Message, bool, string, error) {
+	if err := c.tier3.Wait(ctx); err != nil {
+		return nil, false, "", err
+	}
 	var msgs []slackgo.Message
 	var hasMore bool
 	var nextCursor string

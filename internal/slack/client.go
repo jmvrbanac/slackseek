@@ -16,12 +16,43 @@ import (
 // maxAttempts is the total number of attempts (initial + retries) for retryable errors.
 const maxAttempts = 3
 
+// rateLimiter enforces a minimum interval between sequential API calls.
+// The first Wait returns immediately; subsequent calls wait until the interval
+// has elapsed since the previous call. Not safe for concurrent use.
+type rateLimiter struct {
+	interval time.Duration
+	last     time.Time
+}
+
+// newRateLimiter returns a limiter that allows at most perMinute calls per minute.
+func newRateLimiter(perMinute int) *rateLimiter {
+	return &rateLimiter{interval: time.Minute / time.Duration(perMinute)}
+}
+
+// Wait blocks until enough time has elapsed since the last call, or ctx is
+// cancelled. The first call always returns immediately.
+func (l *rateLimiter) Wait(ctx context.Context) error {
+	if l.last.IsZero() {
+		l.last = time.Now()
+		return nil
+	}
+	if elapsed := time.Since(l.last); elapsed < l.interval {
+		if err := ctxSleep(ctx, l.interval-elapsed); err != nil {
+			return err
+		}
+	}
+	l.last = time.Now()
+	return nil
+}
+
 // Client wraps the slack-go API client with rate-limit retry logic.
 type Client struct {
 	api         *slackgo.Client
 	onRateLimit func(time.Duration) // called before sleeping on HTTP 429; may be nil
 	store       *cache.Store        // optional; nil disables caching
 	cacheKey    string              // workspace-specific key for cache lookups
+	tier2       *rateLimiter        // Tier 2 methods: conversations.list, users.list, search.messages
+	tier3       *rateLimiter        // Tier 3 methods: conversations.history, conversations.replies
 }
 
 // SetRateLimitCallback registers fn to be called before sleeping on a 429
@@ -58,7 +89,11 @@ func NewClient(token, cookie string, httpClient *http.Client) *Client {
 		transport = &cookieTransport{cookie: cookie, base: base}
 	}
 
-	return &Client{api: slackgo.New(token, slackgo.OptionHTTPClient(&http.Client{Transport: transport}))}
+	return &Client{
+		api:   slackgo.New(token, slackgo.OptionHTTPClient(&http.Client{Transport: transport})),
+		tier2: newRateLimiter(18), // Tier 2: 20+/min — use 18 for 10% margin
+		tier3: newRateLimiter(48), // Tier 3: 50+/min — use 48 for 10% margin
+	}
 }
 
 // NewClientWithCache returns an authenticated Client backed by the given cache

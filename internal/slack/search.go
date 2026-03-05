@@ -46,44 +46,54 @@ func BuildSearchQuery(query, channel, userID string, dr DateRange) string {
 func (c *Client) SearchMessages(ctx context.Context, query string, limit int) ([]SearchResult, error) {
 	params := slackgo.NewSearchParameters()
 	params.Count = 100 // request maximum page size
-
 	var results []SearchResult
-
 	for page := 1; ; page++ {
 		params.Page = page
-
-		var sm *slackgo.SearchMessages
-		err := c.callWithRetry(ctx, func() error {
-			var callErr error
-			sm, callErr = c.api.SearchMessagesContext(ctx, query, params)
-			return callErr
-		})
-		if err != nil {
-			return nil, fmt.Errorf("search messages (page %d): %w", page, err)
+		if err := c.tier2.Wait(ctx); err != nil {
+			return nil, err
 		}
-
+		sm, err := c.searchPage(ctx, query, params, page)
+		if err != nil {
+			return nil, err
+		}
 		for _, m := range sm.Matches {
-			results = append(results, SearchResult{
-				Message: Message{
-					Timestamp:   m.Timestamp,
-					Time:        parseSlackTS(m.Timestamp),
-					UserID:      m.User,
-					Text:        m.Text,
-					ChannelID:   m.Channel.ID,
-					ChannelName: m.Channel.Name,
-				},
-				Permalink: m.Permalink,
-			})
+			results = append(results, convertSearchMatch(m))
 			if limit > 0 && len(results) >= limit {
 				return results, nil
 			}
 		}
-
 		if page >= sm.Paging.Pages || len(sm.Matches) == 0 {
 			break
 		}
 	}
 	return results, nil
+}
+
+func (c *Client) searchPage(ctx context.Context, query string, params slackgo.SearchParameters, page int) (*slackgo.SearchMessages, error) {
+	var sm *slackgo.SearchMessages
+	err := c.callWithRetry(ctx, func() error {
+		var callErr error
+		sm, callErr = c.api.SearchMessagesContext(ctx, query, params)
+		return callErr
+	})
+	if err != nil {
+		return nil, fmt.Errorf("search messages (page %d): %w", page, err)
+	}
+	return sm, nil
+}
+
+func convertSearchMatch(m slackgo.SearchMessage) SearchResult {
+	return SearchResult{
+		Message: Message{
+			Timestamp:   m.Timestamp,
+			Time:        parseSlackTS(m.Timestamp),
+			UserID:      m.User,
+			Text:        m.Text,
+			ChannelID:   m.Channel.ID,
+			ChannelName: m.Channel.Name,
+		},
+		Permalink: m.Permalink,
+	}
 }
 
 // parseSlackTS converts a Slack timestamp string (e.g. "1700000000.123456")

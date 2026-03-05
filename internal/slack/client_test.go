@@ -54,6 +54,51 @@ func TestCallWithRetry_ThreeConsecutive500s(t *testing.T) {
 	}
 }
 
+// T036: rateLimiter unit tests
+
+func TestRateLimiter_FirstCallIsImmediate(t *testing.T) {
+	l := &rateLimiter{interval: 200 * time.Millisecond}
+	start := time.Now()
+	if err := l.Wait(context.Background()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Millisecond {
+		t.Errorf("first Wait should be immediate, took %v", elapsed)
+	}
+}
+
+func TestRateLimiter_SecondCallWaitsForInterval(t *testing.T) {
+	interval := 100 * time.Millisecond
+	l := &rateLimiter{interval: interval}
+	_ = l.Wait(context.Background()) // first call — immediate
+	start := time.Now()
+	if err := l.Wait(context.Background()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	elapsed := time.Since(start)
+	if elapsed < interval-5*time.Millisecond {
+		t.Errorf("second Wait should block ~%v, blocked only %v", interval, elapsed)
+	}
+}
+
+func TestRateLimiter_CancelledContextUnblocks(t *testing.T) {
+	l := &rateLimiter{interval: 10 * time.Second}
+	_ = l.Wait(context.Background()) // consume free first call
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		cancel()
+	}()
+	start := time.Now()
+	err := l.Wait(ctx)
+	if err == nil {
+		t.Fatal("expected context cancellation error, got nil")
+	}
+	if time.Since(start) > 500*time.Millisecond {
+		t.Errorf("Wait should have unblocked quickly after cancel, took %v", time.Since(start))
+	}
+}
+
 // TestCallWithRetry_SuccessOnFirstAttempt verifies that a successful fn is not retried.
 func TestCallWithRetry_SuccessOnFirstAttempt(t *testing.T) {
 	c := &Client{api: slackgo.New("fake-token")}

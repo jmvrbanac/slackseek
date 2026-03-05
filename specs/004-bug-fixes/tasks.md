@@ -170,7 +170,35 @@ or decision log.
 
 ---
 
-## Phase 8: Polish & Cross-Cutting Concerns
+## Phase 8: User Story 6 — Fix 6: Proactive rate limiting (Priority: P1)
+
+**Goal**: API calls are throttled to stay below Slack's tier limits before a 429 is
+received, eliminating silent stalls during paginated operations.
+
+### Tests — Fix 6 ⚠️ Write first, confirm they FAIL before implementing
+
+- [X] T036 [US6] Add `rateLimiter` unit tests in `internal/slack/client_test.go`:
+  first `Wait` returns immediately (≤ 5 ms); second `Wait` blocks for ~interval;
+  cancelled context unblocks a waiting `Wait` with `context.Canceled` error
+
+### Implementation — Fix 6
+
+- [X] T037 [US6] Add `rateLimiter` struct and `newRateLimiter(perMinute int)` to
+  `internal/slack/client.go`; add `tier2` and `tier3` fields to `Client`;
+  initialize both in `NewClient` (tier2=18/min, tier3=48/min)
+- [X] T038 [US6] Add `c.tier2.Wait(ctx)` before `callWithRetry` in the `ListChannels`
+  pagination loop in `internal/slack/channels.go`
+- [X] T039 [US6] Add `c.tier3.Wait(ctx)` before `callWithRetry` in `historyPageFetch`
+  and `repliesPageFetch` in `internal/slack/channels.go`
+- [X] T040 [US6] Add `c.tier2.Wait(ctx)` before `callWithRetry` in the `SearchMessages`
+  pagination loop in `internal/slack/search.go`; add `c.tier2.Wait(ctx)` before
+  `GetUsersContext` in `ListUsers` in `internal/slack/users.go`
+
+**Checkpoint**: `go test -race ./internal/slack/...` passes.
+
+---
+
+## Phase 9: Polish & Cross-Cutting Concerns
 
 - [X] T031 Run `go vet ./...` and confirm zero issues
 - [X] T032 Run `golangci-lint run` and fix any lint findings

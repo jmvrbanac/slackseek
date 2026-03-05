@@ -50,6 +50,9 @@ func listUsersCached(
 // The slack-go library handles cursor pagination internally.
 func (c *Client) ListUsers(ctx context.Context) ([]User, error) {
 	return listUsersCached(ctx, c.store, c.cacheKey, func(ctx context.Context) ([]User, error) {
+		if err := c.tier2.Wait(ctx); err != nil {
+			return nil, err
+		}
 		apiUsers, err := c.api.GetUsersContext(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("list users: %w", err)
