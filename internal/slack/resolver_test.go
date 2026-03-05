@@ -255,6 +255,27 @@ func TestResolveMentions_MentionBareIDUnknownFallsBackToID(t *testing.T) {
 	}
 }
 
+// Tests for bare <S...> group ID tokens
+
+func TestResolveMentions_BareGroupIDResolvesToHandle(t *testing.T) {
+	groups := []UserGroup{{ID: "SSRHMQ1NC", Handle: "software-quality"}}
+	r := NewResolver(nil, nil, groups)
+	got := r.ResolveMentions("could we get eyes on <SSRHMQ1NC>?")
+	want := "could we get eyes on @software-quality?"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestResolveMentions_BareGroupIDUnknownFallsBackToAtID(t *testing.T) {
+	r := NewResolver(nil, nil, nil)
+	got := r.ResolveMentions("<SSRHMQ1NC> please review")
+	want := "@SSRHMQ1NC please review"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
 // T005: Tests for ResolveChannelDisplay
 func TestResolveChannelDisplay_UserIDNameResolvesToDisplayName(t *testing.T) {
 	users := []User{{ID: "U01ABCDEF", RealName: "Nick Mollenkopf"}}

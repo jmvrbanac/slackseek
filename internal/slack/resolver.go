@@ -12,6 +12,10 @@ var userIDPattern = regexp.MustCompile(`^U[A-Z0-9]+$`)
 // Group 1 captures the group ID; group 2 captures the optional label.
 var subteamPattern = regexp.MustCompile(`<!subteam\^([A-Z0-9]+)(?:\|([^>]+))?>`)
 
+// bareGroupPattern matches bare Slack subteam ID tokens: <S...> with no prefix.
+// Slack sometimes emits this form instead of <!subteam^ID|label>.
+var bareGroupPattern = regexp.MustCompile(`<(S[A-Z0-9]+)>`)
+
 // broadcastPattern matches <!here>, <!channel>, and <!everyone>.
 var broadcastPattern = regexp.MustCompile(`<!(here|channel|everyone)>`)
 
@@ -121,6 +125,13 @@ func (r *Resolver) ResolveMentions(text string) string {
 			}
 		}
 		return "@[group]"
+	})
+	text = bareGroupPattern.ReplaceAllStringFunc(text, func(match string) string {
+		subs := bareGroupPattern.FindStringSubmatch(match)
+		if handle, ok := r.groups[subs[1]]; ok {
+			return "@" + handle
+		}
+		return "@" + subs[1]
 	})
 	text = broadcastPattern.ReplaceAllString(text, "@$1")
 	text = urlPattern.ReplaceAllStringFunc(text, func(match string) string {
