@@ -9,6 +9,8 @@ Auto-generated from all feature plans. Last updated: 2026-03-02
 - Uses existing `internal/cache` file-backed store (no new storage) (003-resolve-ids-in-output)
 - Go 1.24 + `github.com/olekukonko/tablewriter v1.1.3` (existing), `regexp` stdlib (existing) (004-bug-fixes)
 - N/A — no new storage; existing file-backed cache unchanged (004-bug-fixes)
+- Go 1.24 + `golang.org/x/term` (new); `github.com/olekukonko/tablewriter v1.1.3` (existing); stdlib `regexp`, `sync`, `embed`, `unicode/utf8` (005-day2-improvements)
+- N/A — no new persistent storage; existing file-backed cache unchanged (005-day2-improvements)
 
 - Go 1.24 (`go 1.24` in `go.mod`; floor set by modernc.org/sqlite) (001-slackseek-cli)
 
@@ -45,9 +47,9 @@ Go 1.24: idiomatic Go only. Functions ≤ 40 lines. Descriptive names. Errors wr
 See `.specify/memory/constitution.md` for full coding principles.
 
 ## Recent Changes
+- 005-day2-improvements: Added Go 1.24 + `golang.org/x/term` (new); `github.com/olekukonko/tablewriter v1.1.3` (existing); stdlib `regexp`, `sync`, `embed`, `unicode/utf8`
 - 004-bug-fixes: Added Go 1.24 + `github.com/olekukonko/tablewriter v1.1.3` (existing), `regexp` stdlib (existing)
 - 003-resolve-ids-in-output: Added Go 1.24 (unchanged) + stdlib only for Resolver; existing `internal/slack`, `internal/cache`, `internal/output` packages
-- 002-cache-channels-users: Added Go 1.24 (unchanged from feature 001) + stdlib only — `crypto/sha256`, `encoding/json`, `os.UserCacheDir`
 
 
 <!-- MANUAL ADDITIONS START -->

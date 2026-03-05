@@ -78,3 +78,64 @@ func TestParseDateRange_InvalidFormat(t *testing.T) {
 		t.Error("expected error for invalid date format, got nil")
 	}
 }
+
+// --- T008: ParseRelativeDateRange tests ---
+
+func TestParseRelativeDateRange_SinceHours(t *testing.T) {
+	dr, err := slack.ParseRelativeDateRange("4h", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if dr.From == nil {
+		t.Fatal("expected non-nil From for 4h offset")
+	}
+	// From should be approximately 4 hours ago
+	diff := time.Since(*dr.From)
+	if diff < 3*time.Hour || diff > 5*time.Hour {
+		t.Errorf("expected From ~4h ago, got diff=%v", diff)
+	}
+}
+
+func TestParseRelativeDateRange_SinceWeeks(t *testing.T) {
+	dr, err := slack.ParseRelativeDateRange("2w", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if dr.From == nil {
+		t.Fatal("expected non-nil From for 2w offset")
+	}
+	diff := time.Since(*dr.From)
+	if diff < 13*24*time.Hour || diff > 15*24*time.Hour {
+		t.Errorf("expected From ~2w ago, got diff=%v", diff)
+	}
+}
+
+func TestParseRelativeDateRange_ISODatePassThrough(t *testing.T) {
+	dr, err := slack.ParseRelativeDateRange("2025-01-15", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if dr.From == nil {
+		t.Fatal("expected non-nil From")
+	}
+	if dr.From.Year() != 2025 || dr.From.Month() != 1 || dr.From.Day() != 15 {
+		t.Errorf("expected 2025-01-15, got %v", *dr.From)
+	}
+}
+
+func TestParseRelativeDateRange_UnrecognisedReturnsError(t *testing.T) {
+	_, err := slack.ParseRelativeDateRange("invalid!", "")
+	if err == nil {
+		t.Fatal("expected error for unrecognised --since input")
+	}
+}
+
+func TestParseRelativeDateRange_BothEmpty(t *testing.T) {
+	dr, err := slack.ParseRelativeDateRange("", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if dr.From != nil || dr.To != nil {
+		t.Error("expected nil From and To for empty inputs")
+	}
+}

@@ -191,6 +191,37 @@ func resolveChannel(ctx context.Context, nameOrID string, listFn func(context.Co
 	}
 }
 
+// FetchThread returns the root message and all replies for the given thread.
+// The first element is always the root message; subsequent elements are replies
+// in chronological order.
+func (c *Client) FetchThread(ctx context.Context, channelID, threadTS string) ([]Message, error) {
+	return fetchThread(ctx, channelID, threadTS, c.repliesPageFetch)
+}
+
+// fetchThread is the testable inner implementation of FetchThread.
+func fetchThread(ctx context.Context, channelID, threadTS string, replFn replyPageFetcher) ([]Message, error) {
+	var all []Message
+	cursor := ""
+	for {
+		msgs, hasMore, next, err := replFn(ctx, channelID, threadTS, cursor)
+		if err != nil {
+			return nil, fmt.Errorf("fetch thread %s/%s: %w", channelID, threadTS, err)
+		}
+		for _, m := range msgs {
+			depth := 1
+			if m.Timestamp == threadTS {
+				depth = 0
+			}
+			all = append(all, convertSlackMsg(m, channelID, depth))
+		}
+		if !hasMore || next == "" {
+			break
+		}
+		cursor = next
+	}
+	return all, nil
+}
+
 // FetchHistory retrieves channel messages with optional inline thread replies,
 // sorted ascending by timestamp. A limit of 0 means unlimited.
 func (c *Client) FetchHistory(ctx context.Context, channelID string, dr DateRange, limit int, threads bool) ([]Message, error) {

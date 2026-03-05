@@ -13,6 +13,7 @@ import (
 	"github.com/jmvrbanac/slackseek/internal/slack"
 	"github.com/jmvrbanac/slackseek/internal/tokens"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 // Global flag values populated by cobra before PersistentPreRunE runs.
@@ -24,6 +25,12 @@ var (
 	flagCacheTTL     time.Duration
 	flagRefreshCache bool
 	flagNoCache      bool
+	flagQuiet        bool
+	flagSince        string
+	flagUntil        string
+	flagWidth        int
+	flagEmojiEnabled bool
+	flagNoEmoji      bool
 )
 
 // ParsedDateRange is set by PersistentPreRunE and available to all subcommands.
@@ -33,37 +40,69 @@ var ParsedDateRange slack.DateRange
 // the canonical singleton should use Execute(); tests call NewRootCmd().
 func buildRootCmd() *cobra.Command {
 	root := &cobra.Command{
-		Use:          "slackseek",
-		Short:        "Query Slack workspaces using locally extracted credentials",
-		SilenceUsage: true,
-		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
-			if err := validateFormat(flagFormat); err != nil {
-				return err
-			}
-			dr, err := slack.ParseDateRange(flagFrom, flagTo)
-			if err != nil {
-				return err
-			}
-			ParsedDateRange = dr
-			if flagCacheTTL < 0 {
-				return fmt.Errorf("invalid --cache-ttl: duration must not be negative")
-			}
-			if flagRefreshCache && flagNoCache {
-				return fmt.Errorf("--refresh-cache and --no-cache are mutually exclusive")
-			}
-			return nil
-		},
+		Use:               "slackseek",
+		Short:             "Query Slack workspaces using locally extracted credentials",
+		SilenceUsage:      true,
+		PersistentPreRunE: func(_ *cobra.Command, _ []string) error { return globalPreRun() },
 	}
-
-	root.PersistentFlags().StringVarP(&flagWorkspace, "workspace", "w", "", "workspace name or base URL to target")
-	root.PersistentFlags().StringVar(&flagFormat, "format", "text", "output format: text | table | json | markdown")
-	root.PersistentFlags().StringVar(&flagFrom, "from", "", "start of date range: YYYY-MM-DD or RFC 3339")
-	root.PersistentFlags().StringVar(&flagTo, "to", "", "end of date range: YYYY-MM-DD or RFC 3339")
-	root.PersistentFlags().DurationVar(&flagCacheTTL, "cache-ttl", 24*time.Hour, "how long cached channel/user lists remain valid (0 disables caching)")
-	root.PersistentFlags().BoolVar(&flagRefreshCache, "refresh-cache", false, "force a fresh API fetch and overwrite the cached data")
-	root.PersistentFlags().BoolVar(&flagNoCache, "no-cache", false, "bypass the cache entirely (read and write)")
-
+	registerRootFlags(root)
 	return root
+}
+
+// globalPreRun validates global flags and populates shared state.
+func globalPreRun() error {
+	if err := validateFormat(flagFormat); err != nil {
+		return err
+	}
+	if flagSince != "" && flagFrom != "" {
+		return fmt.Errorf("--since and --from are mutually exclusive: use one or the other")
+	}
+	if flagUntil != "" && flagTo != "" {
+		return fmt.Errorf("--until and --to are mutually exclusive: use one or the other")
+	}
+	if flagEmojiEnabled && flagNoEmoji {
+		return fmt.Errorf("--emoji and --no-emoji are mutually exclusive")
+	}
+	dr, err := parseDateRange()
+	if err != nil {
+		return err
+	}
+	ParsedDateRange = dr
+	if flagCacheTTL < 0 {
+		return fmt.Errorf("invalid --cache-ttl: duration must not be negative")
+	}
+	if flagRefreshCache && flagNoCache {
+		return fmt.Errorf("--refresh-cache and --no-cache are mutually exclusive")
+	}
+	output.EmojiEnabled = resolveEmojiEnabled()
+	output.WrapWidth = resolveWidth()
+	return nil
+}
+
+// parseDateRange resolves --since/--until or --from/--to into a DateRange.
+func parseDateRange() (slack.DateRange, error) {
+	if flagSince != "" || flagUntil != "" {
+		return slack.ParseRelativeDateRange(flagSince, flagUntil)
+	}
+	return slack.ParseDateRange(flagFrom, flagTo)
+}
+
+// registerRootFlags attaches all persistent flags to root.
+func registerRootFlags(root *cobra.Command) {
+	f := root.PersistentFlags()
+	f.StringVarP(&flagWorkspace, "workspace", "w", "", "workspace name or base URL to target")
+	f.StringVar(&flagFormat, "format", "text", "output format: text | table | json | markdown")
+	f.StringVar(&flagFrom, "from", "", "start of date range: YYYY-MM-DD or RFC 3339")
+	f.StringVar(&flagTo, "to", "", "end of date range: YYYY-MM-DD or RFC 3339")
+	f.DurationVar(&flagCacheTTL, "cache-ttl", 24*time.Hour, "how long cached channel/user lists remain valid (0 disables caching)")
+	f.BoolVar(&flagRefreshCache, "refresh-cache", false, "force a fresh API fetch and overwrite the cached data")
+	f.BoolVar(&flagNoCache, "no-cache", false, "bypass the cache entirely (read and write)")
+	f.BoolVarP(&flagQuiet, "quiet", "q", false, "suppress progress and rate-limit notices from stderr")
+	f.StringVar(&flagSince, "since", "", "start of range: ISO date, RFC 3339, or duration (30m, 4h, 7d, 2w)")
+	f.StringVar(&flagUntil, "until", "", "end of range: ISO date, RFC 3339, or duration offset")
+	f.IntVar(&flagWidth, "width", 0, "text wrap column width (0 = auto-detect tty, or 120 for pipes)")
+	f.BoolVar(&flagEmojiEnabled, "emoji", false, "render :name: tokens as Unicode (default: on for tty)")
+	f.BoolVar(&flagNoEmoji, "no-emoji", false, "disable emoji rendering")
 }
 
 // buildCacheStore constructs a cache.Store for the given workspace, applying
@@ -82,6 +121,38 @@ func buildCacheStore(ws tokens.Workspace) *cache.Store {
 		_ = store.Clear(cache.WorkspaceKey(ws.URL))
 	}
 	return store
+}
+
+// resolveWidth returns the effective text wrap width, applying precedence:
+// SLACKSEEK_WIDTH env > --width flag > terminal width (or 120 for pipes).
+// A returned value of 0 means wrapping is disabled.
+func resolveWidth() int {
+	if env := os.Getenv("SLACKSEEK_WIDTH"); env != "" {
+		var w int
+		if _, err := fmt.Sscanf(env, "%d", &w); err == nil {
+			return w
+		}
+	}
+	if flagWidth != 0 {
+		return flagWidth
+	}
+	w, _, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil || w <= 0 {
+		return 120
+	}
+	return w
+}
+
+// resolveEmojiEnabled returns true when emoji rendering should be active.
+// Precedence: --no-emoji > --emoji > isatty(stdout).
+func resolveEmojiEnabled() bool {
+	if flagNoEmoji {
+		return false
+	}
+	if flagEmojiEnabled {
+		return true
+	}
+	return term.IsTerminal(int(os.Stdout.Fd()))
 }
 
 // validateFormat returns an error if f is not one of the accepted format values.

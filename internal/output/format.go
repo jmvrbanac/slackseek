@@ -8,10 +8,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jmvrbanac/slackseek/internal/emoji"
 	"github.com/jmvrbanac/slackseek/internal/slack"
 	"github.com/jmvrbanac/slackseek/internal/tokens"
 	"github.com/olekukonko/tablewriter"
 )
+
+// EmojiEnabled controls whether :name: tokens are rendered as Unicode in output.
+// Set by the CLI layer before calling any Print functions.
+var EmojiEnabled = false
+
+// WrapWidth controls word-wrap width for text output. 0 = disabled.
+// Set by the CLI layer before calling any Print functions.
+var WrapWidth = 0
 
 // Format controls the output representation of all Print functions.
 type Format string
@@ -43,10 +52,15 @@ func TableSafe(s string, n int) string {
 }
 
 // formatReactions formats a reaction slice as "name×count name×count".
+// When EmojiEnabled is true, reaction names are rendered as Unicode.
 func formatReactions(rs []slack.Reaction) string {
 	parts := make([]string, 0, len(rs))
 	for _, r := range rs {
-		parts = append(parts, fmt.Sprintf("%s×%d", r.Name, r.Count))
+		name := r.Name
+		if EmojiEnabled {
+			name = emoji.RenderName(r.Name)
+		}
+		parts = append(parts, fmt.Sprintf("%s×%d", name, r.Count))
 	}
 	return strings.Join(parts, " ")
 }
@@ -194,6 +208,7 @@ func PrintChannels(w io.Writer, format Format, channels []slack.Channel) error {
 // resolveMessageFields returns resolved user name, channel name, and message
 // text (with inline @mentions replaced), falling back to raw values when the
 // resolver is nil or an ID is unknown.
+// When EmojiEnabled is true, :name: tokens in text are rendered as Unicode.
 func resolveMessageFields(m slack.Message, resolver *slack.Resolver) (userDisplay, channelDisplay, text string) {
 	userDisplay = m.UserID
 	channelDisplay = m.ChannelName
@@ -202,6 +217,9 @@ func resolveMessageFields(m slack.Message, resolver *slack.Resolver) (userDispla
 		userDisplay = resolver.UserDisplayName(m.UserID)
 		channelDisplay = resolver.ResolveChannelDisplay(m.ChannelID, m.ChannelName)
 		text = resolver.ResolveMentions(text)
+	}
+	if EmojiEnabled {
+		text = emoji.Render(text)
 	}
 	return
 }
@@ -283,10 +301,21 @@ func printMessagesText(w io.Writer, messages []slack.Message, resolver *slack.Re
 	roots, replies := GroupByThread(messages)
 	for i, m := range roots {
 		user, ch, text := resolveMessageFields(m, resolver)
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", m.Time.Format(time.RFC3339), user, ch, text)
+		ts := m.Time.Format(time.RFC3339)
+		// prefix width = timestamp + tab + user + tab + channel + tab
+		prefixWidth := len(ts) + 1 + len(user) + 1 + len(ch) + 1
+		if WrapWidth > 0 && prefixWidth < WrapWidth {
+			text = WordWrap(text, WrapWidth-prefixWidth, prefixWidth)
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", ts, user, ch, text)
 		for _, reply := range replies[m.Timestamp] {
 			rUser, _, rText := resolveMessageFields(reply, resolver)
-			fmt.Fprintf(w, "  └─ %s\t%s\t%s\n", reply.Time.Format(time.RFC3339), rUser, rText)
+			rts := reply.Time.Format(time.RFC3339)
+			replyPrefixWidth := 5 + len(rts) + 1 + len(rUser) + 1 // "  └─ " prefix
+			if WrapWidth > 0 && replyPrefixWidth < WrapWidth {
+				rText = WordWrap(rText, WrapWidth-replyPrefixWidth, replyPrefixWidth)
+			}
+			fmt.Fprintf(w, "  └─ %s\t%s\t%s\n", rts, rUser, rText)
 		}
 		if i < len(roots)-1 {
 			fmt.Fprintln(w)

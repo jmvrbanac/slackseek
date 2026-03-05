@@ -139,3 +139,83 @@ func TestDateRangeFromAfterToNoAPICall(t *testing.T) {
 		t.Errorf("expected date-range error message, got: %q", errBuf.String())
 	}
 }
+
+// --- T005: new flag tests ---
+
+func TestQuietFlagIsRegistered(t *testing.T) {
+	root := cmd.NewRootCmd()
+	f := root.PersistentFlags().Lookup("quiet")
+	if f == nil {
+		t.Fatal("expected --quiet flag to be registered")
+	}
+	if f.Value.Type() != "bool" {
+		t.Errorf("expected --quiet to be bool, got %s", f.Value.Type())
+	}
+}
+
+func TestSinceFlagIsRegistered(t *testing.T) {
+	root := cmd.NewRootCmd()
+	f := root.PersistentFlags().Lookup("since")
+	if f == nil {
+		t.Fatal("expected --since flag to be registered")
+	}
+	if f.Value.Type() != "string" {
+		t.Errorf("expected --since to be string, got %s", f.Value.Type())
+	}
+}
+
+func TestUntilFlagIsRegistered(t *testing.T) {
+	root := cmd.NewRootCmd()
+	f := root.PersistentFlags().Lookup("until")
+	if f == nil {
+		t.Fatal("expected --until flag to be registered")
+	}
+	if f.Value.Type() != "string" {
+		t.Errorf("expected --until to be string, got %s", f.Value.Type())
+	}
+}
+
+func TestWidthFlagIsRegistered(t *testing.T) {
+	root := cmd.NewRootCmd()
+	f := root.PersistentFlags().Lookup("width")
+	if f == nil {
+		t.Fatal("expected --width flag to be registered")
+	}
+	if f.Value.Type() != "int" {
+		t.Errorf("expected --width to be int, got %s", f.Value.Type())
+	}
+}
+
+func TestSinceAndFromAreMutuallyExclusive(t *testing.T) {
+	_, _, err := runRoot("--since", "24h", "--from", "2025-01-01", "noop")
+	if err == nil {
+		t.Fatal("expected error for --since + --from, got nil")
+	}
+	if !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Errorf("expected 'mutually exclusive' in error, got: %v", err)
+	}
+}
+
+func TestUntilAndToAreMutuallyExclusive(t *testing.T) {
+	_, _, err := runRoot("--until", "1h", "--to", "2025-01-01", "noop")
+	if err == nil {
+		t.Fatal("expected error for --until + --to, got nil")
+	}
+	if !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Errorf("expected 'mutually exclusive' in error, got: %v", err)
+	}
+}
+
+func TestSinceAloneAccepted(t *testing.T) {
+	_, _, err := runRoot("--since", "24h", "noop")
+	if err != nil {
+		t.Errorf("expected no error for --since alone, got: %v", err)
+	}
+}
+
+func TestUntilAloneAccepted(t *testing.T) {
+	_, _, err := runRoot("--until", "1h", "noop")
+	if err != nil {
+		t.Errorf("expected no error for --until alone, got: %v", err)
+	}
+}

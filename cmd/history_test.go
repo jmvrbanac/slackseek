@@ -141,6 +141,24 @@ func TestHistoryCmd_ChannelArgPassedToRunFn(t *testing.T) {
 	}
 }
 
+// TestHistoryCmd_QuietSuppressesProgress verifies that --quiet prevents progress
+// text from being written to stderr.
+func TestHistoryCmd_QuietSuppressesProgress(t *testing.T) {
+	msgs := []slack.Message{
+		{Timestamp: "1700000000.000000", UserID: "U1", Text: "hi"},
+	}
+	runFn := func(_ context.Context, _ tokens.Workspace, _, _ string, _ slack.DateRange, _ int, _ bool) ([]slack.Message, error) {
+		return msgs, nil
+	}
+	_, stderr, err := runHistoryCmd(t, defaultHistoryExtractFn, runFn, "history", "--quiet", "general")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(stderr, "fetching") {
+		t.Errorf("expected no 'fetching' progress text in stderr with --quiet, got: %s", stderr)
+	}
+}
+
 // TestHistoryCmd_NilResolverShowsRawID verifies that when buildResolver returns
 // nil (as it always does in tests with no real cache store), raw user IDs are
 // preserved as-is in the output rather than being resolved to display names.

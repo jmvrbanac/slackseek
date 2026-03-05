@@ -103,16 +103,20 @@ func defaultRunHistory(
 	threads bool,
 ) ([]slack.Message, error) {
 	c := slack.NewClientWithCache(workspace.Token, workspace.Cookie, nil, buildCacheStore(workspace), cache.WorkspaceKey(workspace.URL))
-	c.SetRateLimitCallback(func(d time.Duration) {
-		if d > 30*time.Second {
-			fmt.Fprintf(os.Stderr, "rate limited — waiting %ds\n", int(d.Seconds()))
-		}
-	})
+	if !flagQuiet {
+		c.SetRateLimitCallback(func(d time.Duration) {
+			if d > 30*time.Second {
+				fmt.Fprintf(os.Stderr, "rate limited — waiting %ds\n", int(d.Seconds()))
+			}
+		})
+	}
 	var lastCount int
-	c.SetPageFetchedCallback(func(n int) {
-		lastCount = n
-		fmt.Fprintf(os.Stderr, "\rfetching channels: %d fetched...", n)
-	})
+	if !flagQuiet {
+		c.SetPageFetchedCallback(func(n int) {
+			lastCount = n
+			fmt.Fprintf(os.Stderr, "\rfetching channels: %d fetched...", n)
+		})
+	}
 
 	channelID, err := c.ResolveChannel(ctx, channel)
 	if lastCount > 0 {

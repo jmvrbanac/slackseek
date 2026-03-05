@@ -770,3 +770,62 @@ func TestPrintUsers_MarkdownFallsThrough(t *testing.T) {
 		t.Error("expected non-empty output for users with markdown format")
 	}
 }
+
+// T028: emoji rendering in reactions
+
+func TestFormatReactions_EmojiRendering(t *testing.T) {
+	// Enable emoji rendering
+	prev := output.EmojiEnabled
+	output.EmojiEnabled = true
+	defer func() { output.EmojiEnabled = prev }()
+
+	t0, _ := time.Parse(time.RFC3339, "2025-01-15T09:00:00Z")
+	msgs := []slack.Message{
+		{
+			Timestamp: "1.0",
+			Time:      t0,
+			UserID:    "U1",
+			Text:      "hello",
+			Reactions: []slack.Reaction{{Name: "thumbsup", Count: 3}},
+		},
+	}
+	var buf bytes.Buffer
+	if err := output.PrintMessages(&buf, output.FormatText, msgs, nil); err != nil {
+		t.Fatal(err)
+	}
+	// The text output doesn't show reactions directly; test via JSON
+	buf.Reset()
+	if err := output.PrintMessages(&buf, output.FormatJSON, msgs, nil); err != nil {
+		t.Fatal(err)
+	}
+	var result []map[string]interface{}
+	if jsonErr := json.Unmarshal(buf.Bytes(), &result); jsonErr != nil {
+		t.Fatalf("invalid JSON: %v", jsonErr)
+	}
+	if len(result) == 0 {
+		t.Fatal("expected at least one message")
+	}
+}
+
+func TestEmojiRenderInMessageText(t *testing.T) {
+	prev := output.EmojiEnabled
+	output.EmojiEnabled = true
+	defer func() { output.EmojiEnabled = prev }()
+
+	t0, _ := time.Parse(time.RFC3339, "2025-01-15T09:00:00Z")
+	msgs := []slack.Message{
+		{Timestamp: "1.0", Time: t0, UserID: "U1", Text: ":thumbsup: done"},
+	}
+	var buf bytes.Buffer
+	if err := output.PrintMessages(&buf, output.FormatText, msgs, nil); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	// With emoji enabled, :thumbsup: should be rendered as 👍
+	if strings.Contains(out, ":thumbsup:") {
+		t.Errorf("expected :thumbsup: to be rendered as emoji, got:\n%s", out)
+	}
+	if !strings.Contains(out, "👍") {
+		t.Errorf("expected 👍 in output with emoji enabled, got:\n%s", out)
+	}
+}

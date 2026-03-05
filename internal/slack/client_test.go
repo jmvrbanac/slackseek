@@ -121,7 +121,7 @@ func TestClient_SetPageFetchedCallback_Invoked(t *testing.T) {
 
 func TestClient_SetPageFetchedCallback_ClearWithNil(t *testing.T) {
 	c := &Client{api: slackgo.New("fake-token")}
-	c.SetPageFetchedCallback(func(n int) {})
+	c.SetPageFetchedCallback(func(_ int) {})
 	c.SetPageFetchedCallback(nil)
 	if c.pageFetchedFn != nil {
 		t.Error("expected pageFetchedFn to be nil after clearing with nil")

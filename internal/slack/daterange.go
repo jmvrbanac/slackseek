@@ -2,8 +2,65 @@ package slack
 
 import (
 	"fmt"
+	"regexp"
+	"strconv"
 	"time"
 )
+
+// offsetPattern matches duration strings like 30m, 4h, 7d, 2w.
+var offsetPattern = regexp.MustCompile(`^(\d+)([mhdw])$`)
+
+// parseDateOrOffset resolves either an ISO date string or a duration offset
+// of the form `\d+[mhdw]` relative to now.
+func parseDateOrOffset(s string, now time.Time) (time.Time, error) {
+	m := offsetPattern.FindStringSubmatch(s)
+	if m != nil {
+		n, _ := strconv.Atoi(m[1])
+		var d time.Duration
+		switch m[2] {
+		case "m":
+			d = time.Duration(n) * time.Minute
+		case "h":
+			d = time.Duration(n) * time.Hour
+		case "d":
+			d = time.Duration(n) * 24 * time.Hour
+		case "w":
+			d = time.Duration(n) * 7 * 24 * time.Hour
+		}
+		return now.Add(-d), nil
+	}
+	return parseDateString(s)
+}
+
+// ParseRelativeDateRange parses --since / --until style flag strings.
+// Each string may be empty, an ISO date, RFC 3339, or a duration offset.
+// Returns an error if the resolved From is after the resolved To.
+func ParseRelativeDateRange(since, until string) (DateRange, error) {
+	now := time.Now().UTC()
+	var dr DateRange
+
+	if since != "" {
+		t, err := parseDateOrOffset(since, now)
+		if err != nil {
+			return dr, fmt.Errorf("parsing --since %q: %w", since, err)
+		}
+		dr.From = &t
+	}
+
+	if until != "" {
+		t, err := parseDateOrOffset(until, now)
+		if err != nil {
+			return dr, fmt.Errorf("parsing --until %q: %w", until, err)
+		}
+		dr.To = &t
+	}
+
+	if dr.From != nil && dr.To != nil && dr.From.After(*dr.To) {
+		return dr, fmt.Errorf("--since (%s) resolves to a time after --until (%s)", since, until)
+	}
+
+	return dr, nil
+}
 
 // DateRange holds optional start and end timestamps for time-bounded queries.
 type DateRange struct {
