@@ -198,6 +198,33 @@ received, eliminating silent stalls during paginated operations.
 
 ---
 
+## Phase 8b: User Story 7 — Fix 7: Channel fetch progress (Priority: P2)
+
+**Goal**: Users see a running count on stderr while `channels list` (and any
+command that resolves a channel name) is paginating, so they can distinguish a
+slow workspace from a hung process.
+
+**Independent Test**: Run `./slackseek channels list` on a workspace with many
+channels. Confirm stderr shows `fetching channels: NNN fetched...` lines that
+update per page, followed by a `done` indicator when complete. Run
+`./slackseek channels list > /dev/null` and confirm the same stderr output.
+
+### Tests — Fix 7 ⚠️ Write first, confirm they FAIL before implementing
+
+- [X] T041 [US7] Add `SetPageFetchedCallback` unit test in `internal/slack/client_test.go`: callback is nil by default (no panic); callback is invoked with running total after each simulated page; callback is not invoked on a cache hit.
+- [X] T042 [P] [US7] Add `ListChannels` pagination test in `internal/slack/channels.go` (or `channels_test.go`): confirm callback is called once per page with the correct cumulative count.
+
+### Implementation — Fix 7
+
+- [X] T043 [US7] Add `pageFetchedFn func(fetched int)` field and `SetPageFetchedCallback(fn func(fetched int))` setter to `Client` in `internal/slack/client.go` (mirrors `SetRateLimitCallback` pattern).
+- [X] T044 [US7] Call `c.pageFetchedFn(len(result))` (nil-guarded) at the end of each page iteration inside `listChannelsPages` in `internal/slack/channels.go`.
+- [X] T045 [US7] In `defaultRunChannels` in `cmd/channels.go`: call `c.SetPageFetchedCallback` with a closure that writes `\rfetching channels: %d fetched...` to `os.Stderr`; after `ListChannels` returns, print a final `\rfetching channels: %d fetched — done\n` (or clear the line on success).
+- [X] T046 [P] [US7] In `defaultRunHistory` in `cmd/history.go`: apply the same `SetPageFetchedCallback` wiring so that the implicit `ResolveChannel → ListChannels` path also shows progress.
+
+**Checkpoint**: `go test -race ./internal/slack/... ./cmd/...` passes. `channels list` prints per-page progress to stderr.
+
+---
+
 ## Phase 9: Polish & Cross-Cutting Concerns
 
 - [X] T031 Run `go vet ./...` and confirm zero issues
@@ -230,6 +257,7 @@ received, eliminating silent stalls during paginated operations.
 | US3 | Fix 5 — table newlines | Phase 1 | — |
 | US4 | Fix 2 — thread grouping | US3 (same file: `format.go`) | US5 |
 | US5 | Fix 3 — markdown export | US4 (`groupByThread` required) | — |
+| US7 | Fix 7 — channel fetch progress | Phase 1 | — |
 
 ### Within Each User Story
 

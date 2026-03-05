@@ -20,6 +20,9 @@ type histPageFetcher func(ctx context.Context, channelID, oldest, latest, cursor
 // replyPageFetcher fetches one page of thread replies. Injectable for testing.
 type replyPageFetcher func(ctx context.Context, channelID, threadTS, cursor string) ([]slackgo.Message, bool, string, error)
 
+// channelsPageFetcher fetches one page of conversations. Injectable for testing.
+type channelsPageFetcher func(ctx context.Context, types []string, excludeArchived bool, cursor string) ([]slackgo.Channel, string, error)
+
 // listChannelsCached is the testable inner implementation of ListChannels.
 // When store is non-nil and cacheKey is non-empty it attempts a cache load
 // before calling listFn. On a miss it calls listFn and persists the result.
@@ -61,36 +64,62 @@ func (c *Client) ListChannels(ctx context.Context, types []string, includeArchiv
 		types = []string{"public_channel", "private_channel", "mpim", "im"}
 	}
 	return listChannelsCached(ctx, c.store, c.cacheKey, func(ctx context.Context) ([]Channel, error) {
-		params := &slackgo.GetConversationsParameters{
-			Types:           types,
-			ExcludeArchived: !includeArchived,
-			Limit:           200,
-		}
-		var result []Channel
-		for {
-			if err := c.tier2.Wait(ctx); err != nil {
-				return nil, err
-			}
-			var channels []slackgo.Channel
-			var cursor string
-			err := c.callWithRetry(ctx, func() error {
-				var callErr error
-				channels, cursor, callErr = c.api.GetConversationsContext(ctx, params)
-				return callErr
-			})
-			if err != nil {
-				return nil, fmt.Errorf("list channels: %w", err)
-			}
-			for _, ch := range channels {
-				result = append(result, slackChannelToChannel(ch))
-			}
-			if cursor == "" {
-				break
-			}
-			params.Cursor = cursor
-		}
-		return result, nil
+		return listChannelsPages(ctx, types, !includeArchived, c.pageFetchedFn, c.channelsPageFetch)
 	})
+}
+
+// channelsPageFetch fetches one page of conversations, respecting the tier2 rate limiter.
+func (c *Client) channelsPageFetch(ctx context.Context, types []string, excludeArchived bool, cursor string) ([]slackgo.Channel, string, error) {
+	if err := c.tier2.Wait(ctx); err != nil {
+		return nil, "", err
+	}
+	var channels []slackgo.Channel
+	var next string
+	err := c.callWithRetry(ctx, func() error {
+		var callErr error
+		channels, next, callErr = c.api.GetConversationsContext(ctx, &slackgo.GetConversationsParameters{
+			Types:           types,
+			ExcludeArchived: excludeArchived,
+			Limit:           1000,
+			Cursor:          cursor,
+		})
+		return callErr
+	})
+	if err != nil {
+		return nil, "", err
+	}
+	return channels, next, nil
+}
+
+// listChannelsPages paginates through all channels using pageFn. progressFn is
+// called after each page with the cumulative count of channels fetched so far.
+// progressFn may be nil.
+func listChannelsPages(
+	ctx context.Context,
+	types []string,
+	excludeArchived bool,
+	progressFn func(int),
+	pageFn channelsPageFetcher,
+) ([]Channel, error) {
+	var result []Channel
+	cursor := ""
+	for {
+		channels, next, err := pageFn(ctx, types, excludeArchived, cursor)
+		if err != nil {
+			return nil, fmt.Errorf("list channels: %w", err)
+		}
+		for _, ch := range channels {
+			result = append(result, slackChannelToChannel(ch))
+		}
+		if progressFn != nil {
+			progressFn(len(result))
+		}
+		if next == "" {
+			break
+		}
+		cursor = next
+	}
+	return result, nil
 }
 
 func slackChannelToChannel(ch slackgo.Channel) Channel {

@@ -134,7 +134,20 @@ func defaultRunChannels(
 			fmt.Fprintf(os.Stderr, "rate limited — waiting %ds\n", int(d.Seconds()))
 		}
 	})
-	return c.ListChannels(ctx, types, includeArchived)
+	var lastCount int
+	c.SetPageFetchedCallback(func(n int) {
+		lastCount = n
+		fmt.Fprintf(os.Stderr, "\rfetching channels: %d fetched...", n)
+	})
+	channels, err := c.ListChannels(ctx, types, includeArchived)
+	if lastCount > 0 {
+		if err != nil {
+			fmt.Fprintln(os.Stderr)
+		} else {
+			fmt.Fprintf(os.Stderr, "\rfetching channels: %d fetched — done\n", lastCount)
+		}
+	}
+	return channels, err
 }
 
 func init() {

@@ -99,6 +99,35 @@ func TestRateLimiter_CancelledContextUnblocks(t *testing.T) {
 	}
 }
 
+// T041: SetPageFetchedCallback tests
+
+func TestClient_PageFetchedCallbackNilByDefault(t *testing.T) {
+	c := &Client{api: slackgo.New("fake-token")}
+	if c.pageFetchedFn != nil {
+		t.Error("pageFetchedFn should be nil by default")
+	}
+}
+
+func TestClient_SetPageFetchedCallback_Invoked(t *testing.T) {
+	c := &Client{api: slackgo.New("fake-token")}
+	var got []int
+	c.SetPageFetchedCallback(func(n int) { got = append(got, n) })
+	c.pageFetchedFn(10)
+	c.pageFetchedFn(20)
+	if len(got) != 2 || got[0] != 10 || got[1] != 20 {
+		t.Errorf("expected [10 20], got %v", got)
+	}
+}
+
+func TestClient_SetPageFetchedCallback_ClearWithNil(t *testing.T) {
+	c := &Client{api: slackgo.New("fake-token")}
+	c.SetPageFetchedCallback(func(n int) {})
+	c.SetPageFetchedCallback(nil)
+	if c.pageFetchedFn != nil {
+		t.Error("expected pageFetchedFn to be nil after clearing with nil")
+	}
+}
+
 // TestCallWithRetry_SuccessOnFirstAttempt verifies that a successful fn is not retried.
 func TestCallWithRetry_SuccessOnFirstAttempt(t *testing.T) {
 	c := &Client{api: slackgo.New("fake-token")}

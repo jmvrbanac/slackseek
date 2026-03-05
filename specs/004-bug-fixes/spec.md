@@ -290,6 +290,61 @@ Conservative safe intervals (10% margin below the documented minimum):
 **Non-goals:** per-method limiters; shared state across concurrent invocations
 (CLI is single-command); burst credit — conservative sustained rate is sufficient.
 
+## 7. No progress feedback during slow channel fetch
+
+**Symptom:** `channels list` and any command that resolves a channel name (e.g.
+`history #general`) shows no output while paginating `conversations.list`. With
+the proactive rate limiter from Fix 6 adding ~3.3 s between pages, a large
+workspace with 500+ channels can take 30+ seconds with zero feedback, making it
+impossible to tell whether the CLI is rate-limited, hung, or simply slow.
+
+**Root cause:** `ListChannels` paginates silently. The only feedback hook is the
+`rateLimitFn` callback, which only fires on HTTP 429 waits longer than 30 s.
+
+**Fix:** Add a `pageFetchedFn func(fetched int)` callback field (similar to the
+existing `rateLimitFn`) to `Client`. Wire it up in `ListChannels` so it is
+called after each page with the running total of channels fetched so far. The
+cmd layer sets the callback to write a progress line to stderr.
+
+### Stderr output format
+
+```
+fetching channels: 200 fetched...
+fetching channels: 400 fetched...
+fetching channels: 512 fetched — done
+```
+
+Use `\r` to overwrite the line when stderr is a TTY (`term.IsTerminal`); fall
+back to plain newlines when piped. Clear the line with a final `\r` + spaces
+once done so it does not pollute captured output.
+
+Since `isatty` detection requires no external deps (`os.Stderr.Fd()` +
+`golang.org/x/term` is stdlib-adjacent but adds a dependency), use a simpler
+heuristic: always use `\r` overwrite. Piped consumers rarely capture stderr.
+
+### Wire-up
+
+- `internal/slack/client.go` — add `pageFetchedFn func(fetched int)` field;
+  add `SetPageFetchedCallback(fn func(fetched int))` setter (mirrors
+  `SetRateLimitCallback` pattern).
+- `internal/slack/channels.go` — call `c.pageFetchedFn(len(result))` at the
+  end of each page iteration inside `ListChannels`.
+- `cmd/channels.go` — in `defaultRunChannels`, set the callback to write
+  progress to `os.Stderr`; print a final `\r`-cleared line when done.
+- `cmd/history.go` — set the same callback in `defaultRunHistory` so that
+  the implicit `ResolveChannel → ListChannels` call also shows progress.
+
+**Affected files:**
+- `internal/slack/client.go` — add `pageFetchedFn` field and setter
+- `internal/slack/channels.go` — invoke callback per page
+- `cmd/channels.go` — wire progress to stderr in `defaultRunChannels`
+- `cmd/history.go` — wire progress to stderr in `defaultRunHistory`
+
+**Non-goals:** progress for `ListUsers`, `FetchHistory`, or `SearchMessages`
+— those operations are bounded and already covered by the rate-limit callback.
+Progress for `ResolveChannel` in other commands (`messages`, `search`) is
+also deferred; the main pain point is `channels list` and `history`.
+
 ## 5. Multi-line messages misalign in table view
 
 **Symptom:** A message containing newlines renders with continuation lines

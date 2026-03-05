@@ -335,6 +335,72 @@ func TestListChannelsCached_StaleCache_APICalledAndOverwritten(t *testing.T) {
 	}
 }
 
+// T042: listChannelsPages callback tests
+
+func TestListChannelsPages_CallbackInvokedPerPage(t *testing.T) {
+	page1 := []slackgo.Channel{{GroupConversation: slackgo.GroupConversation{Conversation: slackgo.Conversation{ID: "C001"}}}, {GroupConversation: slackgo.GroupConversation{Conversation: slackgo.Conversation{ID: "C002"}}}}
+	page2 := []slackgo.Channel{{GroupConversation: slackgo.GroupConversation{Conversation: slackgo.Conversation{ID: "C003"}}}}
+	pageCalls := 0
+	pageFn := func(_ context.Context, _ []string, _ bool, cursor string) ([]slackgo.Channel, string, error) {
+		pageCalls++
+		if cursor == "" {
+			return page1, "cursor1", nil
+		}
+		return page2, "", nil
+	}
+	var progress []int
+	_, err := listChannelsPages(context.Background(), []string{"public_channel"}, false, func(n int) { progress = append(progress, n) }, pageFn)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if pageCalls != 2 {
+		t.Errorf("expected 2 page fetches, got %d", pageCalls)
+	}
+	if len(progress) != 2 {
+		t.Fatalf("expected 2 progress calls, got %v", progress)
+	}
+	if progress[0] != 2 {
+		t.Errorf("expected progress[0]=2 (after page1), got %d", progress[0])
+	}
+	if progress[1] != 3 {
+		t.Errorf("expected progress[1]=3 (after page2), got %d", progress[1])
+	}
+}
+
+func TestListChannelsPages_NilCallbackDoesNotPanic(t *testing.T) {
+	pageFn := func(_ context.Context, _ []string, _ bool, _ string) ([]slackgo.Channel, string, error) {
+		return []slackgo.Channel{{GroupConversation: slackgo.GroupConversation{Conversation: slackgo.Conversation{ID: "C001"}}}}, "", nil
+	}
+	channels, err := listChannelsPages(context.Background(), []string{"public_channel"}, false, nil, pageFn)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(channels) != 1 {
+		t.Errorf("expected 1 channel, got %d", len(channels))
+	}
+}
+
+func TestListChannelsPages_CallbackNotInvokedOnCacheHit(t *testing.T) {
+	store := cache.NewStore(t.TempDir(), time.Hour)
+	key := "testkey"
+	payload, _ := json.Marshal([]Channel{{ID: "C001", Name: "general"}})
+	_ = store.Save(key, "channels", payload)
+
+	callbackInvoked := false
+	listFn := func(_ context.Context) ([]Channel, error) {
+		// This should not be called on a cache hit; callback lives inside here
+		callbackInvoked = true
+		return nil, nil
+	}
+	_, err := listChannelsCached(context.Background(), store, key, listFn)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if callbackInvoked {
+		t.Error("listFn (and thus progress callback) must not be invoked on cache hit")
+	}
+}
+
 func TestFetchHistory_MessagesSortedAscendingByTimestamp(t *testing.T) {
 	// History API returns newest-first
 	m1 := makeSlackMsg("200.000000", "U1", "second", 0)

@@ -47,18 +47,26 @@ func (l *rateLimiter) Wait(ctx context.Context) error {
 
 // Client wraps the slack-go API client with rate-limit retry logic.
 type Client struct {
-	api         *slackgo.Client
-	onRateLimit func(time.Duration) // called before sleeping on HTTP 429; may be nil
-	store       *cache.Store        // optional; nil disables caching
-	cacheKey    string              // workspace-specific key for cache lookups
-	tier2       *rateLimiter        // Tier 2 methods: conversations.list, users.list, search.messages
-	tier3       *rateLimiter        // Tier 3 methods: conversations.history, conversations.replies
+	api            *slackgo.Client
+	onRateLimit    func(time.Duration) // called before sleeping on HTTP 429; may be nil
+	pageFetchedFn  func(fetched int)   // called after each channel page with cumulative count; may be nil
+	store          *cache.Store        // optional; nil disables caching
+	cacheKey       string              // workspace-specific key for cache lookups
+	tier2          *rateLimiter        // Tier 2 methods: conversations.list, users.list, search.messages
+	tier3          *rateLimiter        // Tier 3 methods: conversations.history, conversations.replies
 }
 
 // SetRateLimitCallback registers fn to be called before sleeping on a 429
 // response. fn receives the Retry-After duration. Pass nil to clear.
 func (c *Client) SetRateLimitCallback(fn func(time.Duration)) {
 	c.onRateLimit = fn
+}
+
+// SetPageFetchedCallback registers fn to be called after each page of channels
+// is fetched, with the cumulative total fetched so far. Pass nil to clear.
+// The callback is not invoked on a cache hit.
+func (c *Client) SetPageFetchedCallback(fn func(fetched int)) {
+	c.pageFetchedFn = fn
 }
 
 // cookieTransport wraps an http.RoundTripper and injects the Slack session

@@ -108,8 +108,20 @@ func defaultRunHistory(
 			fmt.Fprintf(os.Stderr, "rate limited — waiting %ds\n", int(d.Seconds()))
 		}
 	})
+	var lastCount int
+	c.SetPageFetchedCallback(func(n int) {
+		lastCount = n
+		fmt.Fprintf(os.Stderr, "\rfetching channels: %d fetched...", n)
+	})
 
 	channelID, err := c.ResolveChannel(ctx, channel)
+	if lastCount > 0 {
+		if err != nil {
+			fmt.Fprintln(os.Stderr)
+		} else {
+			fmt.Fprintf(os.Stderr, "\rfetching channels: %d fetched — done\n", lastCount)
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
