@@ -19,65 +19,28 @@ func TestCacheableDayKey(t *testing.T) {
 	future := now.Add(48 * time.Hour)
 	nextDay := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
 
-	tests := []struct {
+	type tc struct {
 		name         string
 		dr           slack.DateRange
 		fetchedCount int
 		limit        int
 		want         string
-	}{
-		{
-			name: "nil From returns empty",
-			dr:   slack.DateRange{From: nil, To: &pastEnd},
-			want: "",
-		},
-		{
-			name: "nil To returns empty",
-			dr:   slack.DateRange{From: &past, To: nil},
-			want: "",
-		},
-		{
-			name: "multi-day range returns empty",
-			dr:   slack.DateRange{From: &past, To: &nextDay},
-			want: "",
-		},
-		{
-			name: "today returns empty",
-			dr:   slack.DateRange{From: &todayStart, To: &now},
-			want: "",
-		},
-		{
-			name: "future returns empty",
-			dr:   slack.DateRange{From: &future, To: &future},
-			want: "",
-		},
-		{
-			name:  "past full day limit=0 returns date",
-			dr:    slack.DateRange{From: &past, To: &pastEnd},
-			limit: 0,
-			want:  "2026-01-01",
-		},
-		{
-			name:         "past full day count < limit returns date",
-			dr:           slack.DateRange{From: &past, To: &pastEnd},
-			fetchedCount: 5,
-			limit:        10,
-			want:         "2026-01-01",
-		},
-		{
-			name:         "truncated count == limit returns empty",
-			dr:           slack.DateRange{From: &past, To: &pastEnd},
-			fetchedCount: 10,
-			limit:        10,
-			want:         "",
-		},
 	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := cacheableDayKey(tc.dr, tc.fetchedCount, tc.limit)
-			if got != tc.want {
-				t.Errorf("cacheableDayKey() = %q, want %q", got, tc.want)
+	tests := []tc{
+		{"nil From", slack.DateRange{From: nil, To: &pastEnd}, 0, 0, ""},
+		{"nil To", slack.DateRange{From: &past, To: nil}, 0, 0, ""},
+		{"multi-day range", slack.DateRange{From: &past, To: &nextDay}, 0, 0, ""},
+		{"today", slack.DateRange{From: &todayStart, To: &now}, 0, 0, ""},
+		{"future", slack.DateRange{From: &future, To: &future}, 0, 0, ""},
+		{"past limit=0", slack.DateRange{From: &past, To: &pastEnd}, 0, 0, "2026-01-01"},
+		{"past count < limit", slack.DateRange{From: &past, To: &pastEnd}, 5, 10, "2026-01-01"},
+		{"truncated count == limit", slack.DateRange{From: &past, To: &pastEnd}, 10, 10, ""},
+	}
+	for _, c := range tests {
+		t.Run(c.name, func(t *testing.T) {
+			got := cacheableDayKey(c.dr, c.fetchedCount, c.limit)
+			if got != c.want {
+				t.Errorf("cacheableDayKey() = %q, want %q", got, c.want)
 			}
 		})
 	}
