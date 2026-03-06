@@ -15,7 +15,7 @@ import (
 
 // historyRunFunc is the injectable history pipeline for testing. It receives
 // the resolved workspace, the channel name/ID, a resolved workspace name,
-// the parsed date range, the limit, and the threads flag.
+// the parsed date range, the limit, the threads flag, and the noCache flag.
 type historyRunFunc func(
 	ctx context.Context,
 	workspace tokens.Workspace,
@@ -23,6 +23,7 @@ type historyRunFunc func(
 	dr slack.DateRange,
 	limit int,
 	threads bool,
+	noCache bool,
 ) ([]slack.Message, error)
 
 // addHistoryCmd attaches the history command to parent using the given
@@ -42,6 +43,7 @@ func runHistoryE(
 	runFn historyRunFunc,
 	threads bool,
 	limit int,
+	noCache bool,
 ) error {
 	channel := args[0]
 	result, err := extractFn()
@@ -60,7 +62,7 @@ func runHistoryE(
 	for _, w := range result.Warnings {
 		fmt.Fprintln(os.Stderr, "Warning:", w)
 	}
-	messages, err := runFn(cmd.Context(), ws, channel, ws.Name, ParsedDateRange, limit, threads)
+	messages, err := runFn(cmd.Context(), ws, channel, ws.Name, ParsedDateRange, limit, threads, noCache)
 	if err != nil {
 		return fmt.Errorf(
 			"history for channel %q failed: %w\n"+
@@ -79,17 +81,19 @@ func newHistoryCmd(
 	var (
 		threads bool
 		limit   int
+		noCache bool
 	)
 	cmd := &cobra.Command{
 		Use:   "history <channel>",
 		Short: "Retrieve message history for a channel",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runHistoryE(cmd, args, extractFn, runFn, threads, limit)
+			return runHistoryE(cmd, args, extractFn, runFn, threads, limit, noCache)
 		},
 	}
 	cmd.Flags().BoolVarP(&threads, "threads", "T", true, "include inline thread replies")
 	cmd.Flags().IntVarP(&limit, "limit", "n", 1000, "maximum number of messages to return (0 = unlimited)")
+	cmd.Flags().BoolVar(&noCache, "no-cache", false, "bypass cache and force a fresh API fetch")
 	return cmd
 }
 
@@ -101,8 +105,11 @@ func defaultRunHistory(
 	dr slack.DateRange,
 	limit int,
 	threads bool,
+	noCache bool,
 ) ([]slack.Message, error) {
-	c := slack.NewClientWithCache(workspace.Token, workspace.Cookie, nil, buildCacheStore(workspace), cache.WorkspaceKey(workspace.URL))
+	store := buildCacheStore(workspace)
+	wsKey := cache.WorkspaceKey(workspace.URL)
+	c := slack.NewClientWithCache(workspace.Token, workspace.Cookie, nil, store, wsKey)
 	if !flagQuiet {
 		c.SetRateLimitCallback(func(d time.Duration) {
 			if d > 30*time.Second {
@@ -130,7 +137,7 @@ func defaultRunHistory(
 		return nil, err
 	}
 
-	return c.FetchHistory(ctx, channelID, dr, limit, threads)
+	return FetchHistoryCached(ctx, c, store, wsKey, channelID, dr, limit, threads, noCache)
 }
 
 func init() {

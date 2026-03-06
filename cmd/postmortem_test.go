@@ -11,8 +11,6 @@ import (
 	"github.com/jmvrbanac/slackseek/internal/tokens"
 )
 
-// T033: postmortem command tests
-
 func runPostmortemCmd(
 	t *testing.T,
 	extractFn func() (tokens.TokenExtractionResult, error),
@@ -49,7 +47,7 @@ func makePostmortemMsgs() []slack.Message {
 }
 
 func TestPostmortemCmd_DefaultFormatIsMarkdown(t *testing.T) {
-	runFn := func(_ context.Context, _ tokens.Workspace, _ string, _ slack.DateRange) ([]slack.Message, error) {
+	runFn := func(_ context.Context, _ tokens.Workspace, _ string, _ slack.DateRange, _ bool) ([]slack.Message, error) {
 		return makePostmortemMsgs(), nil
 	}
 
@@ -63,7 +61,7 @@ func TestPostmortemCmd_DefaultFormatIsMarkdown(t *testing.T) {
 }
 
 func TestPostmortemCmd_JSONContainsRequiredKeys(t *testing.T) {
-	runFn := func(_ context.Context, _ tokens.Workspace, _ string, _ slack.DateRange) ([]slack.Message, error) {
+	runFn := func(_ context.Context, _ tokens.Workspace, _ string, _ slack.DateRange, _ bool) ([]slack.Message, error) {
 		return makePostmortemMsgs(), nil
 	}
 
@@ -80,11 +78,57 @@ func TestPostmortemCmd_JSONContainsRequiredKeys(t *testing.T) {
 }
 
 func TestPostmortemCmd_MissingChannelExitsWithError(t *testing.T) {
-	runFn := func(_ context.Context, _ tokens.Workspace, _ string, _ slack.DateRange) ([]slack.Message, error) {
+	runFn := func(_ context.Context, _ tokens.Workspace, _ string, _ slack.DateRange, _ bool) ([]slack.Message, error) {
 		return nil, nil
 	}
 	_, _, err := runPostmortemCmd(t, defaultPostmortemExtractFn, runFn, "postmortem")
 	if err == nil {
 		t.Fatal("expected error when channel argument is missing")
+	}
+}
+
+// T022: Cache hit/miss tests for postmortem using injected run function.
+func TestDefaultRunPostmortem_CacheMiss(t *testing.T) {
+	called := false
+	runFn := func(_ context.Context, _ tokens.Workspace, _ string, _ slack.DateRange, _ bool) ([]slack.Message, error) {
+		called = true
+		return makePostmortemMsgs(), nil
+	}
+	_, _, err := runPostmortemCmd(t, defaultPostmortemExtractFn, runFn, "postmortem", "ic-5697")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !called {
+		t.Error("expected run function to be called on cache miss path")
+	}
+}
+
+func TestDefaultRunPostmortem_CacheHit(t *testing.T) {
+	msgs := makePostmortemMsgs()
+	runFn := func(_ context.Context, _ tokens.Workspace, _ string, _ slack.DateRange, _ bool) ([]slack.Message, error) {
+		return msgs, nil
+	}
+	stdout, _, err := runPostmortemCmd(t, defaultPostmortemExtractFn, runFn, "postmortem", "ic-5697")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(stdout, "Deploy started") {
+		t.Errorf("expected cached message text in output, got:\n%s", stdout)
+	}
+}
+
+// T024: Verify --no-cache flag is parsed and forwarded for postmortem.
+func TestPostmortemCmd_NoCacheFlag(t *testing.T) {
+	var capturedNoCache bool
+	runFn := func(_ context.Context, _ tokens.Workspace, _ string, _ slack.DateRange, noCache bool) ([]slack.Message, error) {
+		capturedNoCache = noCache
+		return makePostmortemMsgs(), nil
+	}
+	_, _, err := runPostmortemCmd(t, defaultPostmortemExtractFn, runFn, "postmortem", "ic-5697", "--no-cache")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !capturedNoCache {
+		t.Error("expected noCache=true when --no-cache is passed")
 	}
 }

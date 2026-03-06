@@ -54,16 +54,15 @@ func (s *Store) Load(key, kind string) ([]byte, bool, error) {
 	return data, true, nil
 }
 
-// Save atomically writes data to {dir}/{key}/{kind}.json, creating the
-// workspace subdirectory as needed. Any write error is printed to stderr
-// and nil is returned so the caller is not blocked by a cache failure.
+// Save atomically writes data to {dir}/{key}/{kind}.json, creating parent
+// directories as needed. Any write error is printed to stderr and nil is
+// returned so the caller is not blocked by a cache failure.
 func (s *Store) Save(key, kind string, data []byte) error {
-	dir := filepath.Join(s.dir, key)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	target := filepath.Join(s.dir, key, kind+".json")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not write cache: %v\n", err)
 		return nil
 	}
-	target := filepath.Join(dir, kind+".json")
 	tmp := target + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not write cache: %v\n", err)
@@ -75,6 +74,31 @@ func (s *Store) Save(key, kind string, data []byte) error {
 		return nil
 	}
 	return nil
+}
+
+// LoadStable reads the cached bytes for key/kind without checking the TTL.
+// Returns (data, true, nil) on a valid JSON hit, (nil, false, nil) on any miss,
+// and (nil, false, err) only on unexpected I/O errors.
+func (s *Store) LoadStable(key, kind string) ([]byte, bool, error) {
+	path := filepath.Join(s.dir, key, kind+".json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("cache read %s: %w", path, err)
+	}
+	if !json.Valid(data) {
+		return nil, false, nil
+	}
+	return data, true, nil
+}
+
+// SaveStable writes data to {dir}/{key}/{kind}.json with no TTL semantics.
+// Delegates entirely to Save; write failures are printed to stderr and nil is
+// returned so the caller is not blocked by a cache failure.
+func (s *Store) SaveStable(key, kind string, data []byte) error {
+	return s.Save(key, kind, data)
 }
 
 // Clear removes the workspace subdirectory for the given key and all its

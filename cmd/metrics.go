@@ -18,6 +18,7 @@ type metricsRunFunc func(
 	workspace tokens.Workspace,
 	channel string,
 	dr slack.DateRange,
+	noCache bool,
 ) ([]slack.Message, error)
 
 // addMetricsCmd attaches the metrics command to parent.
@@ -33,14 +34,17 @@ func newMetricsCmd(
 	extractFn func() (tokens.TokenExtractionResult, error),
 	runFn metricsRunFunc,
 ) *cobra.Command {
-	return &cobra.Command{
+	var noCache bool
+	cmd := &cobra.Command{
 		Use:   "metrics <channel>",
 		Short: "Show aggregated metrics for a channel",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runMetricsE(cmd, args[0], extractFn, runFn)
+			return runMetricsE(cmd, args[0], extractFn, runFn, noCache)
 		},
 	}
+	cmd.Flags().BoolVar(&noCache, "no-cache", false, "bypass cache and force a fresh API fetch")
+	return cmd
 }
 
 func runMetricsE(
@@ -48,6 +52,7 @@ func runMetricsE(
 	channel string,
 	extractFn func() (tokens.TokenExtractionResult, error),
 	runFn metricsRunFunc,
+	noCache bool,
 ) error {
 	result, err := extractFn()
 	if err != nil {
@@ -61,7 +66,7 @@ func runMetricsE(
 		fmt.Fprintln(os.Stderr, "Warning:", w)
 	}
 
-	messages, err := runFn(cmd.Context(), ws, channel, ParsedDateRange)
+	messages, err := runFn(cmd.Context(), ws, channel, ParsedDateRange, noCache)
 	if err != nil {
 		return fmt.Errorf("metrics for channel %q failed: %w", channel, err)
 	}
@@ -77,13 +82,16 @@ func defaultRunMetrics(
 	workspace tokens.Workspace,
 	channel string,
 	dr slack.DateRange,
+	noCache bool,
 ) ([]slack.Message, error) {
-	c := slack.NewClientWithCache(workspace.Token, workspace.Cookie, nil, buildCacheStore(workspace), cache.WorkspaceKey(workspace.URL))
+	store := buildCacheStore(workspace)
+	wsKey := cache.WorkspaceKey(workspace.URL)
+	c := slack.NewClientWithCache(workspace.Token, workspace.Cookie, nil, store, wsKey)
 	channelID, err := c.ResolveChannel(ctx, channel)
 	if err != nil {
 		return nil, err
 	}
-	return c.FetchHistory(ctx, channelID, dr, 0, true)
+	return FetchHistoryCached(ctx, c, store, wsKey, channelID, dr, 0, true, noCache)
 }
 
 func init() {

@@ -46,6 +46,7 @@ var noopHistoryRunFn historyRunFunc = func(
 	_ slack.DateRange,
 	_ int,
 	_ bool,
+	_ bool,
 ) ([]slack.Message, error) {
 	return nil, nil
 }
@@ -59,7 +60,7 @@ func TestHistoryCmd_MissingChannelExitsWithError(t *testing.T) {
 
 func TestHistoryCmd_LimitFlagPassedToRunFn(t *testing.T) {
 	var capturedLimit int
-	runFn := func(_ context.Context, _ tokens.Workspace, _, _ string, _ slack.DateRange, limit int, _ bool) ([]slack.Message, error) {
+	runFn := func(_ context.Context, _ tokens.Workspace, _, _ string, _ slack.DateRange, limit int, _ bool, _ bool) ([]slack.Message, error) {
 		capturedLimit = limit
 		return nil, nil
 	}
@@ -74,7 +75,7 @@ func TestHistoryCmd_LimitFlagPassedToRunFn(t *testing.T) {
 
 func TestHistoryCmd_ThreadsFalsePassedToRunFn(t *testing.T) {
 	capturedThreads := true
-	runFn := func(_ context.Context, _ tokens.Workspace, _, _ string, _ slack.DateRange, _ int, threads bool) ([]slack.Message, error) {
+	runFn := func(_ context.Context, _ tokens.Workspace, _, _ string, _ slack.DateRange, _ int, threads bool, _ bool) ([]slack.Message, error) {
 		capturedThreads = threads
 		return nil, nil
 	}
@@ -89,7 +90,7 @@ func TestHistoryCmd_ThreadsFalsePassedToRunFn(t *testing.T) {
 
 func TestHistoryCmd_InvalidChannelExitsWithActionableError(t *testing.T) {
 	channelName := "nonexistent-channel"
-	runFn := func(_ context.Context, _ tokens.Workspace, channel, _ string, _ slack.DateRange, _ int, _ bool) ([]slack.Message, error) {
+	runFn := func(_ context.Context, _ tokens.Workspace, channel, _ string, _ slack.DateRange, _ int, _ bool, _ bool) ([]slack.Message, error) {
 		return nil, errors.New("channel " + channel + " not found")
 	}
 	_, _, err := runHistoryCmd(t, defaultHistoryExtractFn, runFn, "history", channelName)
@@ -109,7 +110,7 @@ func TestHistoryCmd_TableOutputContainsExpectedColumns(t *testing.T) {
 			Text:      "hello world",
 		},
 	}
-	runFn := func(_ context.Context, _ tokens.Workspace, _, _ string, _ slack.DateRange, _ int, _ bool) ([]slack.Message, error) {
+	runFn := func(_ context.Context, _ tokens.Workspace, _, _ string, _ slack.DateRange, _ int, _ bool, _ bool) ([]slack.Message, error) {
 		return msgs, nil
 	}
 
@@ -128,7 +129,7 @@ func TestHistoryCmd_TableOutputContainsExpectedColumns(t *testing.T) {
 
 func TestHistoryCmd_ChannelArgPassedToRunFn(t *testing.T) {
 	var capturedChannel string
-	runFn := func(_ context.Context, _ tokens.Workspace, channel, _ string, _ slack.DateRange, _ int, _ bool) ([]slack.Message, error) {
+	runFn := func(_ context.Context, _ tokens.Workspace, channel, _ string, _ slack.DateRange, _ int, _ bool, _ bool) ([]slack.Message, error) {
 		capturedChannel = channel
 		return nil, nil
 	}
@@ -147,7 +148,7 @@ func TestHistoryCmd_QuietSuppressesProgress(t *testing.T) {
 	msgs := []slack.Message{
 		{Timestamp: "1700000000.000000", UserID: "U1", Text: "hi"},
 	}
-	runFn := func(_ context.Context, _ tokens.Workspace, _, _ string, _ slack.DateRange, _ int, _ bool) ([]slack.Message, error) {
+	runFn := func(_ context.Context, _ tokens.Workspace, _, _ string, _ slack.DateRange, _ int, _ bool, _ bool) ([]slack.Message, error) {
 		return msgs, nil
 	}
 	_, stderr, err := runHistoryCmd(t, defaultHistoryExtractFn, runFn, "history", "--quiet", "general")
@@ -156,6 +157,41 @@ func TestHistoryCmd_QuietSuppressesProgress(t *testing.T) {
 	}
 	if strings.Contains(stderr, "fetching") {
 		t.Errorf("expected no 'fetching' progress text in stderr with --quiet, got: %s", stderr)
+	}
+}
+
+// TestDefaultRunHistory_CacheMiss verifies that the injected run function is
+// invoked when no cached result is available (standard miss path).
+func TestDefaultRunHistory_CacheMiss(t *testing.T) {
+	called := false
+	runFn := func(_ context.Context, _ tokens.Workspace, _, _ string, _ slack.DateRange, _ int, _ bool, _ bool) ([]slack.Message, error) {
+		called = true
+		return []slack.Message{{Timestamp: "1700000000.000000", UserID: "U1", Text: "fresh"}}, nil
+	}
+	_, _, err := runHistoryCmd(t, defaultHistoryExtractFn, runFn, "history", "general")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !called {
+		t.Error("expected run function to be called on cache miss path")
+	}
+}
+
+// TestDefaultRunHistory_CacheHit verifies that output is rendered correctly
+// when the run function returns results immediately (simulating a cache hit).
+func TestDefaultRunHistory_CacheHit(t *testing.T) {
+	msgs := []slack.Message{
+		{Timestamp: "1700000000.000000", UserID: "U1", Text: "from cache"},
+	}
+	runFn := func(_ context.Context, _ tokens.Workspace, _, _ string, _ slack.DateRange, _ int, _ bool, _ bool) ([]slack.Message, error) {
+		return msgs, nil
+	}
+	stdout, _, err := runHistoryCmd(t, defaultHistoryExtractFn, runFn, "history", "general", "--format", "text")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(stdout, "from cache") {
+		t.Errorf("expected 'from cache' in output, got: %s", stdout)
 	}
 }
 
@@ -171,7 +207,7 @@ func TestHistoryCmd_NilResolverShowsRawID(t *testing.T) {
 			Text:      "test message",
 		},
 	}
-	runFn := func(_ context.Context, _ tokens.Workspace, _, _ string, _ slack.DateRange, _ int, _ bool) ([]slack.Message, error) {
+	runFn := func(_ context.Context, _ tokens.Workspace, _, _ string, _ slack.DateRange, _ int, _ bool, _ bool) ([]slack.Message, error) {
 		return msgs, nil
 	}
 
@@ -181,5 +217,21 @@ func TestHistoryCmd_NilResolverShowsRawID(t *testing.T) {
 	}
 	if !strings.Contains(stdout, rawUserID) {
 		t.Errorf("expected raw user ID %q in output when resolver is nil, got:\n%s", rawUserID, stdout)
+	}
+}
+
+// T019: Verify --no-cache flag is parsed correctly and forwarded to run function.
+func TestHistoryCmd_NoCacheFlag(t *testing.T) {
+	var capturedNoCache bool
+	runFn := func(_ context.Context, _ tokens.Workspace, _, _ string, _ slack.DateRange, _ int, _ bool, noCache bool) ([]slack.Message, error) {
+		capturedNoCache = noCache
+		return nil, nil
+	}
+	_, _, err := runHistoryCmd(t, defaultHistoryExtractFn, runFn, "history", "general", "--no-cache")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !capturedNoCache {
+		t.Error("expected noCache=true when --no-cache is passed")
 	}
 }

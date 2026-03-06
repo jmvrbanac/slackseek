@@ -185,6 +185,101 @@ func TestClear_RemovesWorkspaceSubdir(t *testing.T) {
 	}
 }
 
+// --- LoadStable tests ---
+
+// T005: LoadStable bypasses TTL — an expired file is still a hit.
+func TestLoadStable_BypassesTTL(t *testing.T) {
+	dir := t.TempDir()
+	s := NewStore(dir, time.Hour)
+	payload := []byte(`[{"id":"C01"}]`)
+	if err := s.Save("key1", "channels", payload); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	// Backdate the file well past the TTL.
+	path := filepath.Join(dir, "key1", "channels.json")
+	past := time.Now().Add(-48 * time.Hour)
+	if err := os.Chtimes(path, past, past); err != nil {
+		t.Fatalf("Chtimes: %v", err)
+	}
+	// Regular Load should miss.
+	_, hit, err := s.Load("key1", "channels")
+	if err != nil {
+		t.Fatalf("Load: unexpected error: %v", err)
+	}
+	if hit {
+		t.Fatal("Load: expected miss on stale file, got hit")
+	}
+	// LoadStable must hit regardless of mod-time.
+	data, hit, err := s.LoadStable("key1", "channels")
+	if err != nil {
+		t.Fatalf("LoadStable: unexpected error: %v", err)
+	}
+	if !hit {
+		t.Fatal("LoadStable: expected hit on stale file, got miss")
+	}
+	if string(data) != string(payload) {
+		t.Fatalf("LoadStable: data = %q, want %q", data, payload)
+	}
+}
+
+// T006: LoadStable returns miss for absent file.
+func TestLoadStable_MissingFile(t *testing.T) {
+	s := NewStore(t.TempDir(), time.Hour)
+	data, hit, err := s.LoadStable("nokey", "channels")
+	if err != nil {
+		t.Fatalf("LoadStable: unexpected error: %v", err)
+	}
+	if hit {
+		t.Fatal("LoadStable: expected miss for absent file, got hit")
+	}
+	if data != nil {
+		t.Fatalf("LoadStable: expected nil data, got %v", data)
+	}
+}
+
+// T006: LoadStable returns miss for invalid JSON.
+func TestLoadStable_InvalidJSON(t *testing.T) {
+	dir := t.TempDir()
+	s := NewStore(dir, time.Hour)
+	keyDir := filepath.Join(dir, "key1")
+	if err := os.MkdirAll(keyDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(keyDir, "channels.json"), []byte("not valid json!!!"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	data, hit, err := s.LoadStable("key1", "channels")
+	if err != nil {
+		t.Fatalf("LoadStable: unexpected error on invalid JSON: %v", err)
+	}
+	if hit {
+		t.Fatal("LoadStable: expected miss for invalid JSON, got hit")
+	}
+	if data != nil {
+		t.Fatal("LoadStable: expected nil data for invalid JSON miss")
+	}
+}
+
+// T007: SaveStable then LoadStable returns original data.
+func TestSaveStable_RoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	s := NewStore(dir, time.Hour)
+	payload := []byte(`[{"ts":"1234.0","user":"U1","text":"hello"}]`)
+	if err := s.SaveStable("key1", "history/C01/2026-03-01", payload); err != nil {
+		t.Fatalf("SaveStable: %v", err)
+	}
+	data, hit, err := s.LoadStable("key1", "history/C01/2026-03-01")
+	if err != nil {
+		t.Fatalf("LoadStable: unexpected error: %v", err)
+	}
+	if !hit {
+		t.Fatal("LoadStable: expected hit after SaveStable, got miss")
+	}
+	if string(data) != string(payload) {
+		t.Fatalf("LoadStable: data = %q, want %q", data, payload)
+	}
+}
+
 // --- ClearAll tests ---
 
 func TestClearAll_RemovesBaseDir(t *testing.T) {

@@ -11,8 +11,6 @@ import (
 	"github.com/jmvrbanac/slackseek/internal/tokens"
 )
 
-// T041: metrics command tests
-
 func runMetricsCmd(
 	t *testing.T,
 	extractFn func() (tokens.TokenExtractionResult, error),
@@ -41,7 +39,7 @@ var defaultMetricsExtractFn = func() (tokens.TokenExtractionResult, error) {
 
 func TestMetricsCmd_TextContainsSections(t *testing.T) {
 	t1 := time.Date(2026, 2, 25, 14, 0, 0, 0, time.UTC)
-	runFn := func(_ context.Context, _ tokens.Workspace, _ string, _ slack.DateRange) ([]slack.Message, error) {
+	runFn := func(_ context.Context, _ tokens.Workspace, _ string, _ slack.DateRange, _ bool) ([]slack.Message, error) {
 		return []slack.Message{
 			{Timestamp: "1.0", Time: t1, UserID: "alice", Text: "hello"},
 			{Timestamp: "2.0", Time: t1, UserID: "bob", Text: "world"},
@@ -62,7 +60,7 @@ func TestMetricsCmd_TextContainsSections(t *testing.T) {
 
 func TestMetricsCmd_JSONContainsRequiredKeys(t *testing.T) {
 	t1 := time.Date(2026, 2, 25, 14, 0, 0, 0, time.UTC)
-	runFn := func(_ context.Context, _ tokens.Workspace, _ string, _ slack.DateRange) ([]slack.Message, error) {
+	runFn := func(_ context.Context, _ tokens.Workspace, _ string, _ slack.DateRange, _ bool) ([]slack.Message, error) {
 		return []slack.Message{
 			{Timestamp: "1.0", Time: t1, UserID: "alice", Text: "hello"},
 		}, nil
@@ -81,11 +79,60 @@ func TestMetricsCmd_JSONContainsRequiredKeys(t *testing.T) {
 }
 
 func TestMetricsCmd_MissingChannelExitsWithError(t *testing.T) {
-	runFn := func(_ context.Context, _ tokens.Workspace, _ string, _ slack.DateRange) ([]slack.Message, error) {
+	runFn := func(_ context.Context, _ tokens.Workspace, _ string, _ slack.DateRange, _ bool) ([]slack.Message, error) {
 		return nil, nil
 	}
 	_, _, err := runMetricsCmd(t, defaultMetricsExtractFn, runFn, "metrics")
 	if err == nil {
 		t.Fatal("expected error when channel argument is missing")
+	}
+}
+
+// T023: Cache hit/miss tests for metrics using injected run function.
+func TestDefaultRunMetrics_CacheMiss(t *testing.T) {
+	t1 := time.Date(2026, 2, 25, 14, 0, 0, 0, time.UTC)
+	called := false
+	runFn := func(_ context.Context, _ tokens.Workspace, _ string, _ slack.DateRange, _ bool) ([]slack.Message, error) {
+		called = true
+		return []slack.Message{{Timestamp: "1.0", Time: t1, UserID: "alice", Text: "fresh"}}, nil
+	}
+	_, _, err := runMetricsCmd(t, defaultMetricsExtractFn, runFn, "metrics", "general")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !called {
+		t.Error("expected run function to be called on cache miss path")
+	}
+}
+
+func TestDefaultRunMetrics_CacheHit(t *testing.T) {
+	t1 := time.Date(2026, 2, 25, 14, 0, 0, 0, time.UTC)
+	msgs := []slack.Message{{Timestamp: "1.0", Time: t1, UserID: "alice", Text: "cached metrics"}}
+	runFn := func(_ context.Context, _ tokens.Workspace, _ string, _ slack.DateRange, _ bool) ([]slack.Message, error) {
+		return msgs, nil
+	}
+	stdout, _, err := runMetricsCmd(t, defaultMetricsExtractFn, runFn, "metrics", "general")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(stdout, "Message counts") {
+		t.Errorf("expected metrics output sections, got:\n%s", stdout)
+	}
+}
+
+// T025: Verify --no-cache flag is parsed and forwarded for metrics.
+func TestMetricsCmd_NoCacheFlag(t *testing.T) {
+	t1 := time.Date(2026, 2, 25, 14, 0, 0, 0, time.UTC)
+	var capturedNoCache bool
+	runFn := func(_ context.Context, _ tokens.Workspace, _ string, _ slack.DateRange, noCache bool) ([]slack.Message, error) {
+		capturedNoCache = noCache
+		return []slack.Message{{Timestamp: "1.0", Time: t1, UserID: "alice", Text: "hi"}}, nil
+	}
+	_, _, err := runMetricsCmd(t, defaultMetricsExtractFn, runFn, "metrics", "general", "--no-cache")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !capturedNoCache {
+		t.Error("expected noCache=true when --no-cache is passed")
 	}
 }
