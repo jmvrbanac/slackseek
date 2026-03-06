@@ -287,6 +287,17 @@ slackseek actions general --since 7d | grep -c "\[ \]"
 
 ---
 
+## Phase 9c: Same-Day Date Range Fix (FR-014)
+
+**Problem**: `--from 2026-03-05 --to 2026-03-05` returns nothing because both
+dates parse to `00:00:00 UTC`, making the range a zero-width instant. A
+`YYYY-MM-DD` `--to`/`--until` should cover through end of day.
+
+- [X] T055 [P] [US2] Write unit tests in `internal/slack/daterange_test.go` for the end-of-day behaviour: `ParseDateRange("2026-03-05", "2026-03-05")` returns `To == 2026-03-05T23:59:59.999999999Z`; RFC 3339 `--to` is unchanged; duration offset `--until` is unchanged; confirm RED
+- [X] T056 [US2] In `internal/slack/daterange.go`, add `parseDateStringEndOfDay(s string) (time.Time, error)` that parses `YYYY-MM-DD` as `23:59:59.999999999 UTC` and falls back to RFC 3339 as-is; use it for the `to` field in `ParseDateRange` and for the ISO-date branch of `parseDateOrOffset` when called for `until` in `ParseRelativeDateRange`; confirm T055 turns GREEN
+
+---
+
 ## Phase 9b: Postmortem Quality Improvements (Post-Initial Implementation)
 
 **Purpose**: Improve postmortem output quality based on real-world output review.
@@ -397,4 +408,4 @@ Parallel batch B (all different output files):
 - Each story phase ends with a checkpoint — validate the story before moving to the next priority
 - `go test -race ./...` must pass after every phase
 - `golangci-lint run` must pass before Polish phase is considered complete
-- Total task count: **54 tasks** across 14 phases (T052–T054 added post-initial implementation)
+- Total task count: **56 tasks** across 15 phases (T052–T056 added post-initial implementation)

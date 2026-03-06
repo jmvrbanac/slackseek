@@ -274,6 +274,9 @@ checklist of messages matching commitment patterns.
 - `--since` / `--until` with nanosecond precision duration strings (e.g. `1h30m`) → supported.
 - `slackseek thread` on a deleted message → Slack API returns error; surface
   with actionable message.
+- `--from 2026-03-05 --to 2026-03-05` (same-day range) → `--to` is interpreted
+  as `2026-03-05T23:59:59.999999999Z` so the full day is included. The same
+  applies to `--until` when an ISO date is given (not an offset).
 
 ## Requirements *(mandatory)*
 
@@ -313,6 +316,10 @@ checklist of messages matching commitment patterns.
   thread stats, top reactions, and hourly distribution from `FetchHistory`.
 - **FR-013**: `slackseek actions <channel>` MUST scan messages for commitment
   patterns and emit a checklist.
+- **FR-014**: When `--to` or `--until` is given as a `YYYY-MM-DD` date string
+  (no time component), it MUST be resolved to `23:59:59.999999999 UTC` of that
+  day so that a same-day `--from`/`--to` range covers the entire day. RFC 3339
+  inputs and duration offsets MUST be used as-is.
 
 ### Key Entities
 

@@ -32,7 +32,8 @@ func TestParseDateRange_YYYYMMDDTo(t *testing.T) {
 	if dr.To == nil {
 		t.Fatal("expected To to be non-nil")
 	}
-	expected := time.Date(2025, 3, 1, 0, 0, 0, 0, time.UTC)
+	// YYYY-MM-DD --to resolves to end of day (FR-014)
+	expected := time.Date(2025, 3, 1, 23, 59, 59, 999999999, time.UTC)
 	if !dr.To.Equal(expected) {
 		t.Errorf("expected To=%v, got %v", expected, *dr.To)
 	}
@@ -137,5 +138,67 @@ func TestParseRelativeDateRange_BothEmpty(t *testing.T) {
 	}
 	if dr.From != nil || dr.To != nil {
 		t.Error("expected nil From and To for empty inputs")
+	}
+}
+
+// --- T055: end-of-day behaviour for YYYY-MM-DD --to / --until ---
+
+func TestParseDateRange_SameDayReturnsEndOfDay(t *testing.T) {
+	dr, err := slack.ParseDateRange("2026-03-05", "2026-03-05")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	wantFrom := time.Date(2026, 3, 5, 0, 0, 0, 0, time.UTC)
+	wantTo := time.Date(2026, 3, 5, 23, 59, 59, 999999999, time.UTC)
+	if !dr.From.Equal(wantFrom) {
+		t.Errorf("From: expected %v, got %v", wantFrom, *dr.From)
+	}
+	if !dr.To.Equal(wantTo) {
+		t.Errorf("To: expected %v, got %v", wantTo, *dr.To)
+	}
+}
+
+func TestParseDateRange_ToEndOfDayDateOnly(t *testing.T) {
+	dr, err := slack.ParseDateRange("", "2026-01-15")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := time.Date(2026, 1, 15, 23, 59, 59, 999999999, time.UTC)
+	if !dr.To.Equal(want) {
+		t.Errorf("expected To=%v, got %v", want, *dr.To)
+	}
+}
+
+func TestParseDateRange_ToRFC3339Unchanged(t *testing.T) {
+	dr, err := slack.ParseDateRange("", "2026-01-15T09:00:00Z")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := time.Date(2026, 1, 15, 9, 0, 0, 0, time.UTC)
+	if !dr.To.Equal(want) {
+		t.Errorf("RFC3339 --to should be unchanged: expected %v, got %v", want, *dr.To)
+	}
+}
+
+func TestParseRelativeDateRange_UntilISODateEndOfDay(t *testing.T) {
+	dr, err := slack.ParseRelativeDateRange("", "2026-03-05")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := time.Date(2026, 3, 5, 23, 59, 59, 999999999, time.UTC)
+	if !dr.To.Equal(want) {
+		t.Errorf("expected To=%v, got %v", want, *dr.To)
+	}
+}
+
+func TestParseRelativeDateRange_UntilOffsetUnchanged(t *testing.T) {
+	dr, err := slack.ParseRelativeDateRange("", "1d")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// offset: should be approximately 1 day ago (not end-of-day of today)
+	diff := time.Since(*dr.To)
+	if diff < 20*time.Hour || diff > 28*time.Hour {
+		t.Errorf("expected To ~1d ago, got diff=%v", diff)
 	}
 }
