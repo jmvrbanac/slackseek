@@ -6,6 +6,7 @@ import (
 	"crypto/cipher"
 	"crypto/sha1"
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -76,6 +77,82 @@ type mockKR struct {
 
 func (m *mockKR) ReadPassword(_, _ string) ([]byte, error) {
 	return m.password, nil
+}
+
+// mockFallbackKR returns an error for the primary account and the password for
+// the fallback account, allowing tests to exercise the fallback code path.
+type mockFallbackKR struct {
+	primaryAccount  string
+	fallbackAccount string
+	password        []byte
+}
+
+func (m *mockFallbackKR) ReadPassword(_, account string) ([]byte, error) {
+	if account == m.primaryAccount {
+		return nil, fmt.Errorf("account %q not found in keyring", account)
+	}
+	if account == m.fallbackAccount {
+		return m.password, nil
+	}
+	return nil, fmt.Errorf("unknown account %q", account)
+}
+
+func TestDecryptCookie_FallbackKeyringAccount(t *testing.T) {
+	const plaintext = "test-session-cookie-value"
+	const password = "test-password"
+	const iterations = 1
+
+	encrypted := encryptCookie(plaintext, []byte(password), iterations)
+
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "Cookies")
+	createSyntheticCookieDB(t, dbPath, encrypted, 20)
+
+	kr := &mockFallbackKR{
+		primaryAccount:  slackKeyringAccount,
+		fallbackAccount: slackKeyringAccountFallback,
+		password:        []byte(password),
+	}
+	result, err := DecryptCookie(dbPath, kr, iterations)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != plaintext {
+		t.Errorf("expected %q, got %q", plaintext, result)
+	}
+}
+
+func TestDecryptCookie_BothAccountsFail(t *testing.T) {
+	const iterations = 1
+
+	encrypted := encryptCookie("value", []byte("pw"), iterations)
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "Cookies")
+	createSyntheticCookieDB(t, dbPath, encrypted, 20)
+
+	// fallbackAccount set to "no-match" so both lookups fail
+	kr := &mockFallbackKR{
+		primaryAccount:  slackKeyringAccount,
+		fallbackAccount: "no-match",
+		password:        []byte("pw"),
+	}
+	_, err := DecryptCookie(dbPath, kr, iterations)
+	if err == nil {
+		t.Fatal("expected error when both accounts fail")
+	}
+	if !containsStr(err.Error(), slackKeyringService) {
+		t.Errorf("error %q should mention service name %q", err.Error(), slackKeyringService)
+	}
+}
+
+// containsStr reports whether substr appears within s.
+func containsStr(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }
 
 func TestDecryptCookie_HappyPath(t *testing.T) {

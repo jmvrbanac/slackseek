@@ -16,9 +16,10 @@ import (
 )
 
 const (
-	slackKeyringService = "Slack Safe Storage"
-	slackKeyringAccount = "Slack"
-	cookieSalt          = "saltysalt"
+	slackKeyringService         = "Slack Safe Storage"
+	slackKeyringAccount         = "Slack"
+	slackKeyringAccountFallback = "Slack Key"
+	cookieSalt                  = "saltysalt"
 	aesKeyLen           = 16
 	cbcIVByte           = 0x20 // Chromium uses 16 space bytes as the AES-CBC IV
 	v10Prefix           = "v10"
@@ -56,6 +57,9 @@ func DecryptCookie(dbPath string, kr KeyringReader, iterations int) (string, err
 	}
 
 	password, err := kr.ReadPassword(slackKeyringService, slackKeyringAccount)
+	if err != nil {
+		password, err = kr.ReadPassword(slackKeyringService, slackKeyringAccountFallback)
+	}
 	if err != nil {
 		return "", fmt.Errorf("read keyring password for %q: %w", slackKeyringService, err)
 	}
