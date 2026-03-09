@@ -230,11 +230,12 @@ func TestFetchHistoryCached_NoCache_StillWrites(t *testing.T) {
 
 // ===== Phase 2: isMultiDay and enumeratePastDays =====
 
-// T003: Table-driven tests for isMultiDay covering all four branches.
+// T003: Table-driven tests for isMultiDay covering all branches including open-ended ranges.
 func TestIsMultiDay(t *testing.T) {
 	past1 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	past2 := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
 	sameEnd := time.Date(2026, 1, 1, 23, 59, 59, 0, time.UTC)
+	now := time.Now().UTC()
 
 	tests := []struct {
 		name string
@@ -243,7 +244,8 @@ func TestIsMultiDay(t *testing.T) {
 	}{
 		{"both nil", slack.DateRange{}, false},
 		{"from nil", slack.DateRange{To: &past2}, false},
-		{"to nil", slack.DateRange{From: &past1}, false},
+		{"to nil past from (--since 1w)", slack.DateRange{From: &past1}, true},
+		{"to nil today from (--since 4h)", slack.DateRange{From: &now}, false},
 		{"same-day range", slack.DateRange{From: &past1, To: &sameEnd}, false},
 		{"multi-day range", slack.DateRange{From: &past1, To: &past2}, true},
 	}
@@ -820,6 +822,51 @@ func TestFetchHistoryMultiDayCached_LimitZeroUnlimited(t *testing.T) {
 		}
 		if !hit {
 			t.Errorf("expected full cache for %s", day)
+		}
+	}
+}
+
+// Regression: --since 1w without --until (To=nil) must cache past days.
+func TestFetchHistoryMultiDayCached_OpenEndedSince(t *testing.T) {
+	store := cache.NewStore(t.TempDir(), time.Hour)
+	wsKey, channelID := "testws", "C01"
+
+	now := time.Now().UTC()
+	today := now.Truncate(24 * time.Hour)
+	yesterday := today.Add(-24 * time.Hour)
+	twoDaysAgo := today.Add(-2 * 24 * time.Hour)
+
+	allMsgs := []slack.Message{
+		{Timestamp: "1.0", Time: twoDaysAgo.Add(time.Hour), ThreadDepth: 0},
+		{Timestamp: "2.0", Time: yesterday.Add(time.Hour), ThreadDepth: 0},
+		{Timestamp: "3.0", Time: today.Add(time.Hour), ThreadDepth: 0},
+	}
+	fetchFn := func(_ context.Context, _ string, _ slack.DateRange, _ int, _ bool) ([]slack.Message, error) {
+		return allMsgs, nil
+	}
+
+	// Simulate --since 2d with no --until (To=nil)
+	from := twoDaysAgo
+	dr := slack.DateRange{From: &from, To: nil}
+
+	if !isMultiDay(dr) {
+		t.Fatal("isMultiDay should return true for open-ended range with past From")
+	}
+
+	got, err := fetchHistoryMultiDayCached(context.Background(), fetchFn, store, wsKey, channelID, dr, 0, false, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 3 {
+		t.Errorf("expected 3 messages, got %d", len(got))
+	}
+	for _, day := range []string{twoDaysAgo.Format("2006-01-02"), yesterday.Format("2006-01-02")} {
+		_, hit, e := store.LoadStable(wsKey, cacheKind(channelID, day))
+		if e != nil {
+			t.Fatalf("LoadStable: %v", e)
+		}
+		if !hit {
+			t.Errorf("expected cache entry for past day %s with open-ended range", day)
 		}
 	}
 }

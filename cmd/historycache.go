@@ -53,12 +53,17 @@ func cacheKind(channelID, dateKey string) string {
 	return "history/" + channelID + "/" + dateKey
 }
 
-// isMultiDay returns true when both From and To are non-nil and span different UTC dates.
+// isMultiDay returns true when the range spans multiple UTC calendar days.
+// Handles open-ended ranges (To=nil): multi-day if From predates today.
 func isMultiDay(dr slack.DateRange) bool {
-	if dr.From == nil || dr.To == nil {
+	if dr.From == nil {
 		return false
 	}
-	return dr.From.UTC().Format("2006-01-02") != dr.To.UTC().Format("2006-01-02")
+	fromDate := dr.From.UTC().Format("2006-01-02")
+	if dr.To == nil {
+		return fromDate < time.Now().UTC().Format("2006-01-02")
+	}
+	return fromDate != dr.To.UTC().Format("2006-01-02")
 }
 
 // enumeratePastDays returns ascending YYYY-MM-DD strings for each complete UTC day
@@ -208,7 +213,11 @@ func fetchHistoryMultiDayCached(
 	threads bool,
 	noCache bool,
 ) ([]slack.Message, error) {
-	pastDays := enumeratePastDays(*dr.From, *dr.To)
+	toTime := time.Now().UTC()
+	if dr.To != nil {
+		toTime = *dr.To
+	}
+	pastDays := enumeratePastDays(*dr.From, toTime)
 	cached, gaps, err := buildGapRanges(pastDays, store, wsKey, channelID, noCache)
 	if err != nil {
 		return nil, err
