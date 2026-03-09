@@ -13,6 +13,7 @@ Auto-generated from all feature plans. Last updated: 2026-03-02
 - N/A — no new persistent storage; existing file-backed cache unchanged (005-day2-improvements)
 - Go 1.24 + `github.com/olekukonko/tablewriter v1.1.3` (existing); stdlib only for new code (006-channel-cache)
 - File-based JSON under `os.UserCacheDir()/slackseek/` (existing `internal/cache` store) (006-channel-cache)
+- File-based JSON under `os.UserCacheDir()/slackseek/` (existing `internal/cache` store, unchanged) (007-multi-day-history-cache)
 
 - Go 1.24 (`go 1.24` in `go.mod`; floor set by modernc.org/sqlite) (001-slackseek-cli)
 
@@ -49,9 +50,9 @@ Go 1.24: idiomatic Go only. Functions ≤ 40 lines. Descriptive names. Errors wr
 See `.specify/memory/constitution.md` for full coding principles.
 
 ## Recent Changes
+- 007-multi-day-history-cache: Added Go 1.24 + `github.com/olekukonko/tablewriter v1.1.3` (existing); stdlib only for new code
 - 006-channel-cache: Added Go 1.24 + `github.com/olekukonko/tablewriter v1.1.3` (existing); stdlib only for new code
 - 005-day2-improvements: Added Go 1.24 + `golang.org/x/term` (new); `github.com/olekukonko/tablewriter v1.1.3` (existing); stdlib `regexp`, `sync`, `embed`, `unicode/utf8`
-- 004-bug-fixes: Added Go 1.24 + `github.com/olekukonko/tablewriter v1.1.3` (existing), `regexp` stdlib (existing)
 
 
 <!-- MANUAL ADDITIONS START -->
