@@ -50,12 +50,12 @@
 
 **Independent Test**: Populate entity cache files; advance mtime beyond 24 h; run any command referencing only cached IDs — verify zero list API calls and full name resolution. Also verify that removing cache files triggers a fresh full-list fetch.
 
-- [ ] T010 Write failing unit tests in `internal/slack/users_test.go` for `listUsersCached`: assert that a cache file older than 24 h is returned as a hit (no fall-through to `listFn`)
-- [ ] T011 [P] Write failing unit tests in `internal/slack/channels_test.go` for `listChannelsCached`: same TTL-bypass assertion
-- [ ] T012 [P] Write failing unit tests in `internal/slack/usergroups_test.go` for `listUserGroupsCached`: same TTL-bypass assertion
-- [ ] T013 [US1] Switch `store.Load` to `store.LoadStable` in `listUsersCached` in `internal/slack/users.go`
-- [ ] T014 [P] [US1] Switch `store.Load` to `store.LoadStable` in `listChannelsCached` in `internal/slack/channels.go`
-- [ ] T015 [P] [US1] Switch `store.Load` to `store.LoadStable` in `listUserGroupsCached` in `internal/slack/usergroups.go`
+- [x] T010 Write failing unit tests in `internal/slack/users_test.go` for `listUsersCached`: assert that a cache file older than 24 h is returned as a hit (no fall-through to `listFn`)
+- [x] T011 [P] Write failing unit tests in `internal/slack/channels_test.go` for `listChannelsCached`: same TTL-bypass assertion
+- [x] T012 [P] Write failing unit tests in `internal/slack/usergroups_test.go` for `listUserGroupsCached`: same TTL-bypass assertion
+- [x] T013 [US1] Switch `store.Load` to `store.LoadStable` in `listUsersCached` in `internal/slack/users.go`
+- [x] T014 [P] [US1] Switch `store.Load` to `store.LoadStable` in `listChannelsCached` in `internal/slack/channels.go`
+- [x] T015 [P] [US1] Switch `store.Load` to `store.LoadStable` in `listUserGroupsCached` in `internal/slack/usergroups.go`
 
 **Checkpoint**: T010–T012 tests pass. Existing cold-start tests continue to pass. `go test -race ./internal/slack/...` passes.
 
@@ -67,10 +67,10 @@
 
 **Independent Test**: Construct a `Client` with an injected `users.info` stub; call `FetchUser` for an unknown ID; verify the stub is called once, the returned `User` matches, and `LoadStable("users")` on the same cache key now includes the new entry.
 
-- [ ] T016 [US2] Write failing unit tests for `Client.FetchUser` in `internal/slack/users_test.go`: inject a mock `GetUserInfoContext`, verify single API call, cache merge, and graceful error handling (API error → returns error, cache unchanged)
-- [ ] T017 [US2] Implement `mergeUser(store *cache.Store, key string, u User) error` helper in `internal/slack/users.go`: load current `users.json` via `LoadStable`, replace-or-append the entry for `u.ID`, write back via `Save`
-- [ ] T018 [US2] Implement `(*Client).FetchUser(ctx context.Context, id string) (User, error)` in `internal/slack/users.go`: call `users.info` via `tier4` limiter, call `mergeUser` on success (non-fatal failure), return the `User`
-- [ ] T019 [US2] Add `fetchUser` closure to `buildResolver` in `cmd/resolver.go` and pass it to `NewResolverWithFetch`: closure captures `ctx` and `c`, calls `c.FetchUser(ctx, id)`, returns the display name string
+- [x] T016 [US2] Write failing unit tests for `Client.FetchUser` in `internal/slack/users_test.go`: inject a mock `GetUserInfoContext`, verify single API call, cache merge, and graceful error handling (API error → returns error, cache unchanged)
+- [x] T017 [US2] Implement `mergeUser(store *cache.Store, key string, u User) error` helper in `internal/slack/users.go`: load current `users.json` via `LoadStable`, replace-or-append the entry for `u.ID`, write back via `Save`
+- [x] T018 [US2] Implement `(*Client).FetchUser(ctx context.Context, id string) (User, error)` in `internal/slack/users.go`: call `users.info` via `tier4` limiter, call `mergeUser` on success (non-fatal failure), return the `User`
+- [x] T019 [US2] Add `fetchUser` closure to `buildResolver` in `cmd/resolver.go` and pass it to `NewResolverWithFetch`: closure captures `ctx` and `c`, calls `c.FetchUser(ctx, id)`, returns the display name string
 
 **Checkpoint**: T016 tests pass. A command referencing a new user ID resolves the name in the same invocation and the cache file contains the new entry. `go test -race ./...` passes.
 
@@ -82,10 +82,10 @@
 
 **Independent Test**: Same pattern as Phase 4 but for channels: inject `GetConversationInfoContext` stub, verify single call, cache merge, graceful error.
 
-- [ ] T020 [P] [US3] Write failing unit tests for `Client.FetchChannel` in `internal/slack/channels_test.go`: inject mock `GetConversationInfoContext`, verify single API call, cache merge, and error handling
-- [ ] T021 [P] [US3] Implement `mergeChannel(store *cache.Store, key string, ch Channel) error` helper in `internal/slack/channels.go`: same load-replace-append-save pattern as `mergeUser`
-- [ ] T022 [P] [US3] Implement `(*Client).FetchChannel(ctx context.Context, id string) (Channel, error)` in `internal/slack/channels.go`: call `conversations.info` via `tier3` limiter, call `mergeChannel` on success, return the `Channel`
-- [ ] T023 [US3] Add `fetchChannel` closure to `buildResolver` in `cmd/resolver.go` and pass it to `NewResolverWithFetch`: closure captures `ctx` and `c`, calls `c.FetchChannel(ctx, id)`, returns the channel name string
+- [x] T020 [P] [US3] Write failing unit tests for `Client.FetchChannel` in `internal/slack/channels_test.go`: inject mock `GetConversationInfoContext`, verify single API call, cache merge, and error handling
+- [x] T021 [P] [US3] Implement `mergeChannel(store *cache.Store, key string, ch Channel) error` helper in `internal/slack/channels.go`: same load-replace-append-save pattern as `mergeUser`
+- [x] T022 [P] [US3] Implement `(*Client).FetchChannel(ctx context.Context, id string) (Channel, error)` in `internal/slack/channels.go`: call `conversations.info` via `tier3` limiter, call `mergeChannel` on success, return the `Channel`
+- [x] T023 [US3] Add `fetchChannel` closure to `buildResolver` in `cmd/resolver.go` and pass it to `NewResolverWithFetch`: closure captures `ctx` and `c`, calls `c.FetchChannel(ctx, id)`, returns the channel name string
 
 **Checkpoint**: T020 tests pass. A command referencing a new channel ID resolves the name in the same invocation. `go test -race ./...` passes.
 

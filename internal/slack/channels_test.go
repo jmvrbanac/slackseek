@@ -3,6 +3,8 @@ package slack
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -305,7 +307,8 @@ func TestListChannelsCached_CacheMiss_APICalledAndSaved(t *testing.T) {
 	}
 }
 
-func TestListChannelsCached_StaleCache_APICalledAndOverwritten(t *testing.T) {
+// T011: stale cache (past TTL) must be returned as a hit — LoadStable ignores TTL.
+func TestListChannelsCached_StaleCache_ReturnedAsCacheHit(t *testing.T) {
 	dir := t.TempDir()
 	store := cache.NewStore(dir, time.Hour)
 	key := "testkey"
@@ -327,11 +330,11 @@ func TestListChannelsCached_StaleCache_APICalledAndOverwritten(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if called != 1 {
-		t.Errorf("expected 1 API call for stale cache, got %d", called)
+	if called != 0 {
+		t.Errorf("expected 0 API calls for stale cache (TTL ignored), got %d", called)
 	}
-	if len(channels) != 1 || channels[0].ID != "CNEW" {
-		t.Errorf("expected fresh data, got %v", channels)
+	if len(channels) != 1 || channels[0].ID != "COLD" {
+		t.Errorf("expected stale cached data to be returned, got %v", channels)
 	}
 }
 
@@ -398,6 +401,104 @@ func TestListChannelsPages_CallbackNotInvokedOnCacheHit(t *testing.T) {
 	}
 	if callbackInvoked {
 		t.Error("listFn (and thus progress callback) must not be invoked on cache hit")
+	}
+}
+
+// --- FetchChannel tests (T020) ---
+
+// mockChannelInfoResponse returns an *http.Client whose transport returns body on every request.
+// Reuses ugRoundTripper from usergroups_test.go (same package).
+func mockChannelInfoResponse(body string) *http.Client {
+	return &http.Client{Transport: ugRoundTripper(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Header:     make(http.Header),
+		}, nil
+	})}
+}
+
+func TestFetchChannel_CorrectFields(t *testing.T) {
+	body := `{"ok":true,"channel":{"id":"C001","name":"general","is_private":false,"is_archived":false,"num_members":10,"topic":{"value":"hello"}}}`
+	c := NewClient("token", "", mockChannelInfoResponse(body))
+	ch, err := c.FetchChannel(context.Background(), "C001")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ch.ID != "C001" {
+		t.Errorf("expected ID 'C001', got %q", ch.ID)
+	}
+	if ch.Name != "general" {
+		t.Errorf("expected Name 'general', got %q", ch.Name)
+	}
+	if ch.Type != "public_channel" {
+		t.Errorf("expected Type 'public_channel', got %q", ch.Type)
+	}
+}
+
+func TestFetchChannel_CacheMerge(t *testing.T) {
+	dir := t.TempDir()
+	store := cache.NewStore(dir, time.Hour)
+	key := "testkey"
+	existing, _ := json.Marshal([]Channel{{ID: "C000", Name: "existing"}})
+	_ = store.Save(key, "channels", existing)
+
+	body := `{"ok":true,"channel":{"id":"C001","name":"general","is_private":false,"is_archived":false,"num_members":5,"topic":{"value":""}}}`
+	c := NewClientWithCache("token", "", mockChannelInfoResponse(body), store, key)
+	_, err := c.FetchChannel(context.Background(), "C001")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	data, hit, _ := store.LoadStable(key, "channels")
+	if !hit {
+		t.Fatal("expected cache file to exist after FetchChannel")
+	}
+	var channels []Channel
+	_ = json.Unmarshal(data, &channels)
+	found := false
+	for _, ch := range channels {
+		if ch.ID == "C001" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected C001 in cache after FetchChannel, got %+v", channels)
+	}
+	if len(channels) < 2 {
+		t.Errorf("expected at least 2 channels (existing + new), got %d", len(channels))
+	}
+}
+
+func TestFetchChannel_MergeReplacesExistingEntry(t *testing.T) {
+	dir := t.TempDir()
+	store := cache.NewStore(dir, time.Hour)
+	key := "testkey"
+	old, _ := json.Marshal([]Channel{{ID: "C001", Name: "old-name"}})
+	_ = store.Save(key, "channels", old)
+
+	body := `{"ok":true,"channel":{"id":"C001","name":"new-name","is_private":false,"is_archived":false,"num_members":0,"topic":{"value":""}}}`
+	c := NewClientWithCache("token", "", mockChannelInfoResponse(body), store, key)
+	_, err := c.FetchChannel(context.Background(), "C001")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	data, _, _ := store.LoadStable(key, "channels")
+	var channels []Channel
+	_ = json.Unmarshal(data, &channels)
+	if len(channels) != 1 {
+		t.Errorf("expected exactly 1 channel after replace, got %d", len(channels))
+	}
+	if channels[0].Name != "new-name" {
+		t.Errorf("expected updated Name 'new-name', got %q", channels[0].Name)
+	}
+}
+
+func TestFetchChannel_APIError_ReturnsError(t *testing.T) {
+	body := `{"ok":false,"error":"channel_not_found"}`
+	c := NewClient("token", "", mockChannelInfoResponse(body))
+	_, err := c.FetchChannel(context.Background(), "CBAD")
+	if err == nil {
+		t.Fatal("expected error for ok=false response, got nil")
 	}
 }
 

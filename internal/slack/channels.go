@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -33,7 +34,7 @@ func listChannelsCached(
 	listFn func(context.Context) ([]Channel, error),
 ) ([]Channel, error) {
 	if store != nil && cacheKey != "" {
-		data, hit, err := store.Load(cacheKey, "channels")
+		data, hit, err := store.LoadStable(cacheKey, "channels")
 		if err != nil {
 			return nil, fmt.Errorf("cache load channels: %w", err)
 		}
@@ -140,6 +141,62 @@ func slackChannelToChannel(ch slackgo.Channel) Channel {
 		Topic:       ch.Topic.Value,
 		IsArchived:  ch.IsArchived,
 	}
+}
+
+// mergeChannel loads the current channels cache file, replaces or appends the
+// entry for ch.ID, and writes the updated slice back atomically.
+func mergeChannel(store *cache.Store, key string, ch Channel) error {
+	data, _, err := store.LoadStable(key, "channels")
+	if err != nil {
+		return fmt.Errorf("merge channel load: %w", err)
+	}
+	var channels []Channel
+	if data != nil {
+		_ = json.Unmarshal(data, &channels)
+	}
+	replaced := false
+	for i, existing := range channels {
+		if existing.ID == ch.ID {
+			channels[i] = ch
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		channels = append(channels, ch)
+	}
+	out, err := json.Marshal(channels)
+	if err != nil {
+		return fmt.Errorf("merge channel marshal: %w", err)
+	}
+	return store.Save(key, "channels", out)
+}
+
+// FetchChannel fetches a single channel by ID from conversations.info (Tier 3),
+// merges the result into the local cache file (non-fatal on write failure), and
+// returns the Channel. Returns an error if the API call fails.
+func (c *Client) FetchChannel(ctx context.Context, id string) (Channel, error) {
+	if err := c.tier3.Wait(ctx); err != nil {
+		return Channel{}, err
+	}
+	var apiCh *slackgo.Channel
+	err := c.callWithRetry(ctx, func() error {
+		var callErr error
+		apiCh, callErr = c.api.GetConversationInfoContext(ctx, &slackgo.GetConversationInfoInput{
+			ChannelID: id,
+		})
+		return callErr
+	})
+	if err != nil {
+		return Channel{}, fmt.Errorf("fetch channel %s: %w", id, err)
+	}
+	ch := slackChannelToChannel(*apiCh)
+	if c.store != nil && c.cacheKey != "" {
+		if mergeErr := mergeChannel(c.store, c.cacheKey, ch); mergeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not update channel cache: %v\n", mergeErr)
+		}
+	}
+	return ch, nil
 }
 
 // ResolveChannel maps a channel name or Slack channel ID to a Slack channel ID.

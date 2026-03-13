@@ -37,5 +37,23 @@ func buildResolver(ctx context.Context, ws tokens.Workspace) *slack.Resolver {
 		fmt.Fprintf(os.Stderr, "Warning: could not resolve user groups: %v\n", err)
 		groups = nil
 	}
-	return slack.NewResolver(users, channels, groups)
+	fetchUser := func(id string) (string, error) {
+		u, fetchErr := c.FetchUser(ctx, id)
+		if fetchErr != nil {
+			return "", fetchErr
+		}
+		name := u.RealName
+		if name == "" {
+			name = u.DisplayName
+		}
+		return name, nil
+	}
+	fetchChannel := func(id string) (string, error) {
+		ch, fetchErr := c.FetchChannel(ctx, id)
+		if fetchErr != nil {
+			return "", fetchErr
+		}
+		return ch.Name, nil
+	}
+	return slack.NewResolverWithFetch(users, channels, groups, fetchUser, fetchChannel, nil)
 }

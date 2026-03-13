@@ -19,7 +19,7 @@ func listUserGroupsCached(
 	listFn func(context.Context) ([]UserGroup, error),
 ) ([]UserGroup, error) {
 	if store != nil && cacheKey != "" {
-		data, hit, err := store.Load(cacheKey, "user_groups")
+		data, hit, err := store.LoadStable(cacheKey, "user_groups")
 		if err != nil {
 			return nil, fmt.Errorf("cache load user_groups: %w", err)
 		}
