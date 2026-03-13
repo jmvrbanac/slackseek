@@ -16,6 +16,8 @@ Auto-generated from all feature plans. Last updated: 2026-03-02
 - File-based JSON under `os.UserCacheDir()/slackseek/` (existing `internal/cache` store, unchanged) (007-multi-day-history-cache)
 - Go 1.24 + `github.com/slack-go/slack` (existing), `github.com/cenkalti/backoff/v4` (existing), `github.com/spf13/cobra` (existing) (008-lazy-entity-cache)
 - File-based JSON cache under `os.UserCacheDir()/slackseek/` (existing `internal/cache` store, unchanged format) (008-lazy-entity-cache)
+- Go 1.24 (unchanged) + `github.com/mark3labs/mcp-go` (new), `github.com/spf13/cobra` (existing), `github.com/jmvrbanac/slackseek/internal/slack` (existing), `internal/tokens` (existing), `internal/cache` (existing), `internal/output` (existing) (009-mcp-support)
+- N/A — no new persistent storage; token cache is in-memory only (009-mcp-support)
 
 - Go 1.24 (`go 1.24` in `go.mod`; floor set by modernc.org/sqlite) (001-slackseek-cli)
 
@@ -52,9 +54,9 @@ Go 1.24: idiomatic Go only. Functions ≤ 40 lines. Descriptive names. Errors wr
 See `.specify/memory/constitution.md` for full coding principles.
 
 ## Recent Changes
+- 009-mcp-support: Added Go 1.24 (unchanged) + `github.com/mark3labs/mcp-go` (new), `github.com/spf13/cobra` (existing), `github.com/jmvrbanac/slackseek/internal/slack` (existing), `internal/tokens` (existing), `internal/cache` (existing), `internal/output` (existing)
 - 008-lazy-entity-cache: Added Go 1.24 + `github.com/slack-go/slack` (existing), `github.com/cenkalti/backoff/v4` (existing), `github.com/spf13/cobra` (existing)
 - 007-multi-day-history-cache: Added Go 1.24 + `github.com/olekukonko/tablewriter v1.1.3` (existing); stdlib only for new code
-- 006-channel-cache: Added Go 1.24 + `github.com/olekukonko/tablewriter v1.1.3` (existing); stdlib only for new code
 
 
 <!-- MANUAL ADDITIONS START -->
