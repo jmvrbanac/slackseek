@@ -33,8 +33,8 @@ go.mod / go.sum                  # updated for mcp-go dependency
 
 **Purpose**: Add the new dependency and create the package skeleton.
 
-- [ ] T001 Add `github.com/mark3labs/mcp-go` to `go.mod` via `go get github.com/mark3labs/mcp-go` then run `go mod tidy` to update `go.sum`
-- [ ] T002 Create `internal/mcp/doc.go` with package-level comment stating the package's single purpose: exposing Slack operations as MCP tools over stdio transport (Constitution Principle III)
+- [x] T001 Add `github.com/mark3labs/mcp-go` to `go.mod` via `go get github.com/mark3labs/mcp-go` then run `go mod tidy` to update `go.sum`
+- [x] T002 Create `internal/mcp/doc.go` with package-level comment stating the package's single purpose: exposing Slack operations as MCP tools over stdio transport (Constitution Principle III)
 
 ---
 
@@ -46,10 +46,10 @@ go.mod / go.sum                  # updated for mcp-go dependency
 
 > **NOTE: Write test files FIRST (T003, T005) and ensure they FAIL before writing implementations (T004, T006).**
 
-- [ ] T003 Write `internal/mcp/tokencache_test.go` with failing tests covering: cache hit within TTL (no re-extract called), cache miss after TTL expires (re-extract called), `refresh()` always calls extractFn regardless of TTL, concurrent `get()` calls do not race (use `go test -race`), extractFn error propagated on empty cache
-- [ ] T004 Implement `internal/mcp/tokencache.go` — `tokenCache` struct with `sync.Mutex`, `[]tokens.Workspace`, `time.Time fetchedAt`, injectable `extractFn`; implement `get()` (TTL check → refresh if stale) and `refresh()` (always re-extract, update fields); `tokenTTL = 5 * time.Minute` constant; all functions ≤ 40 lines
-- [ ] T005 [P] Define `slackClient` interface (12 methods) at the top of `internal/mcp/tools.go`: `SearchMessages`, `FetchHistory`, `GetUserMessages`, `FetchThread`, `ListChannels`, `ListUsers`, `ResolveChannel`, `ResolveUser`, `FetchUser`, `FetchChannel`, `ListUserGroups`, `ForceRefreshUserGroups` — signatures must match `*slack.Client` exactly so no changes to `internal/slack` are needed
-- [ ] T006 Implement four private helper functions in `internal/mcp/tools.go`: `parseDateRange(since, until string) (slack.DateRange, error)` (delegates to `slack.ParseRelativeDateRange` or `slack.ParseDateRange`); `selectWorkspace(workspaces []tokens.Workspace, selector string) (tokens.Workspace, error)` (silent — no stderr); `buildMCPClient(ws tokens.Workspace) slackClient` (creates `*slack.Client` with 24h cache TTL); `buildMCPResolver(ctx context.Context, ws tokens.Workspace, c slackClient) *slack.Resolver` (mirrors `cmd.buildResolver` without global flags or stderr)
+- [x] T003 Write `internal/mcp/tokencache_test.go` with failing tests covering: cache hit within TTL (no re-extract called), cache miss after TTL expires (re-extract called), `refresh()` always calls extractFn regardless of TTL, concurrent `get()` calls do not race (use `go test -race`), extractFn error propagated on empty cache
+- [x] T004 Implement `internal/mcp/tokencache.go` — `tokenCache` struct with `sync.Mutex`, `[]tokens.Workspace`, `time.Time fetchedAt`, injectable `extractFn`; implement `get()` (TTL check → refresh if stale) and `refresh()` (always re-extract, update fields); `tokenTTL = 5 * time.Minute` constant; all functions ≤ 40 lines
+- [x] T005 [P] Define `slackClient` interface (12 methods) at the top of `internal/mcp/tools.go`: `SearchMessages`, `FetchHistory`, `GetUserMessages`, `FetchThread`, `ListChannels`, `ListUsers`, `ResolveChannel`, `ResolveUser`, `FetchUser`, `FetchChannel`, `ListUserGroups`, `ForceRefreshUserGroups` — signatures must match `*slack.Client` exactly so no changes to `internal/slack` are needed
+- [x] T006 Implement four private helper functions in `internal/mcp/tools.go`: `parseDateRange(since, until string) (slack.DateRange, error)` (delegates to `slack.ParseRelativeDateRange` or `slack.ParseDateRange`); `selectWorkspace(workspaces []tokens.Workspace, selector string) (tokens.Workspace, error)` (silent — no stderr); `buildMCPClient(ws tokens.Workspace) slackClient` (creates `*slack.Client` with 24h cache TTL); `buildMCPResolver(ctx context.Context, ws tokens.Workspace, c slackClient) *slack.Resolver` (mirrors `cmd.buildResolver` without global flags or stderr)
 
 **Checkpoint**: Token cache tests pass with `go test -race ./internal/mcp/...`. Foundation ready.
 
@@ -63,10 +63,10 @@ go.mod / go.sum                  # updated for mcp-go dependency
 
 > **Write T007 and T008 first. Ensure they fail before writing T009 and T010.**
 
-- [ ] T007 [P] [US1] Write `internal/mcp/server_test.go` with a test verifying that `Serve()` propagates an error when `extractFn` returns an error immediately (use a mock tokenCache / extractFn returning `errors.New("no creds")`); verify `Serve()` does not panic
-- [ ] T008 [P] [US1] Write `cmd/mcp_test.go` with a test verifying the `mcp` subcommand and its `serve` child are registered on the root command (use `NewRootCmd().Find([]string{"mcp","serve"})`)
-- [ ] T009 [US1] Implement `internal/mcp/server.go` — export `Serve(extractFn func() (tokens.TokenExtractionResult, error)) error`: create `tokenCache`, create `server.NewMCPServer("slackseek", version, server.WithToolCapabilities(true))`, register zero tools initially (will be filled in later phases), call `server.ServeStdio(s)` and return any error; keep function ≤ 40 lines
-- [ ] T010 [US1] Implement `cmd/mcp.go` — Cobra `mcp` parent command and `serve` child command; `serve.RunE` calls `mcp.Serve(tokens.DefaultExtract)` and returns the error; register via `init()` on `rootCmd`; add a descriptive `Short` and `Long` for both commands
+- [x] T007 [P] [US1] Write `internal/mcp/server_test.go` with a test verifying that `Serve()` propagates an error when `extractFn` returns an error immediately (use a mock tokenCache / extractFn returning `errors.New("no creds")`); verify `Serve()` does not panic
+- [x] T008 [P] [US1] Write `cmd/mcp_test.go` with a test verifying the `mcp` subcommand and its `serve` child are registered on the root command (use `NewRootCmd().Find([]string{"mcp","serve"})`)
+- [x] T009 [US1] Implement `internal/mcp/server.go` — export `Serve(extractFn func() (tokens.TokenExtractionResult, error)) error`: create `tokenCache`, create `server.NewMCPServer("slackseek", version, server.WithToolCapabilities(true))`, register zero tools initially (will be filled in later phases), call `server.ServeStdio(s)` and return any error; keep function ≤ 40 lines
+- [x] T010 [US1] Implement `cmd/mcp.go` — Cobra `mcp` parent command and `serve` child command; `serve.RunE` calls `mcp.Serve(tokens.DefaultExtract)` and returns the error; register via `init()` on `rootCmd`; add a descriptive `Short` and `Long` for both commands
 
 **Checkpoint**: `go build ./...` succeeds. `go test -race ./...` passes. US1 complete — server starts over stdio.
 
