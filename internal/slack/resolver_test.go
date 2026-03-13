@@ -1,6 +1,60 @@
 package slack
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+// T003: NewResolverWithFetch — fetchUser invoked on miss, cached in-memory.
+
+func TestNewResolverWithFetch_FetchUserInvokedOnMiss(t *testing.T) {
+	calls := 0
+	r := NewResolverWithFetch(nil, nil, nil,
+		func(id string) (string, error) {
+			calls++
+			return "Alice Smith", nil
+		}, nil, nil)
+	name := r.UserDisplayName("U001")
+	if name != "Alice Smith" {
+		t.Errorf("expected 'Alice Smith', got %q", name)
+	}
+	if calls != 1 {
+		t.Errorf("expected 1 fetchUser call on miss, got %d", calls)
+	}
+}
+
+func TestNewResolverWithFetch_FetchUserNotCalledOnCachedID(t *testing.T) {
+	calls := 0
+	r := NewResolverWithFetch(nil, nil, nil,
+		func(id string) (string, error) {
+			calls++
+			return "Alice Smith", nil
+		}, nil, nil)
+	_ = r.UserDisplayName("U001") // first call — populates in-memory cache
+	_ = r.UserDisplayName("U001") // second call — should use cached result
+	if calls != 1 {
+		t.Errorf("expected 1 fetchUser call total (cached on second), got %d", calls)
+	}
+}
+
+// T004: groupRefreshed guard — fetchGroups called at most once per invocation.
+
+func TestNewResolverWithFetch_GroupRefreshedCalledAtMostOnce(t *testing.T) {
+	calls := 0
+	r := NewResolverWithFetch(nil, nil, nil, nil, nil,
+		func() ([]UserGroup, error) {
+			calls++
+			return []UserGroup{{ID: "S001", Handle: "eng"}}, nil
+		})
+	// Two group misses in the same ResolveMentions call.
+	result := r.ResolveMentions("<!subteam^S001> and <!subteam^SUNKNOWN>")
+	if calls != 1 {
+		t.Errorf("expected fetchGroups called exactly once for multiple misses, got %d", calls)
+	}
+	if !strings.Contains(result, "@eng") {
+		t.Errorf("expected S001 resolved to @eng in %q", result)
+	}
+}
 
 // T001: Unit tests for NewResolver, UserDisplayName, and ChannelName.
 

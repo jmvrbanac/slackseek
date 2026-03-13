@@ -19,8 +19,8 @@
 
 **Purpose**: Cross-cutting prerequisites that block multiple user stories.
 
-- [ ] T001 Add `tier4 *rateLimiter` field (90 calls/min) to `slack.Client` struct in `internal/slack/client.go` and initialize it in `NewClient`
-- [ ] T002 Update `client_test.go` in `internal/slack/client_test.go` to assert `tier4` is non-nil on a freshly constructed client
+- [x] T001 Add `tier4 *rateLimiter` field (90 calls/min) to `slack.Client` struct in `internal/slack/client.go` and initialize it in `NewClient`
+- [x] T002 Update `client_test.go` in `internal/slack/client_test.go` to assert `tier4` is non-nil on a freshly constructed client
 
 **Checkpoint**: `slack.Client` has a Tier 4 rate limiter; all existing tests pass.
 
@@ -32,13 +32,13 @@
 
 ⚠️ **CRITICAL**: No fetch-on-miss user story work can begin until this phase is complete.
 
-- [ ] T003 Write failing unit tests for `NewResolverWithFetch` in `internal/slack/resolver_test.go`: verify fetchUser callback is invoked on user ID miss, result is cached in-memory, and callback is NOT invoked on a second reference to the same ID
-- [ ] T004 Write failing unit tests for the `groupRefreshed` guard in `internal/slack/resolver_test.go`: verify `fetchGroups` is called at most once per invocation regardless of how many group IDs are missing
-- [ ] T005 Add `fetchUser func(string) (string, error)`, `fetchChannel func(string) (string, error)`, `fetchGroups func() ([]UserGroup, error)`, and `groupRefreshed bool` fields to the `Resolver` struct in `internal/slack/resolver.go`
-- [ ] T006 Implement `NewResolverWithFetch` constructor in `internal/slack/resolver.go` accepting all callback parameters; update `NewResolver` to call it with all nil callbacks (preserving existing call sites)
-- [ ] T007 Update `UserDisplayName` in `internal/slack/resolver.go` to invoke `fetchUser` on miss, update `r.users[id]`, and return the resolved name (fall back to raw ID on callback error or nil callback)
-- [ ] T008 Update `ChannelName` in `internal/slack/resolver.go` to invoke `fetchChannel` on miss, update `r.channels[id]`, and return the resolved name (fall back to raw ID on callback error or nil callback)
-- [ ] T009 Update group resolution in `ResolveMentions` in `internal/slack/resolver.go` to invoke `fetchGroups` on first group miss (gated by `groupRefreshed`), rebuild `r.groups` from the returned slice, set `r.groupRefreshed = true`, and retry resolution
+- [x] T003 Write failing unit tests for `NewResolverWithFetch` in `internal/slack/resolver_test.go`: verify fetchUser callback is invoked on user ID miss, result is cached in-memory, and callback is NOT invoked on a second reference to the same ID
+- [x] T004 Write failing unit tests for the `groupRefreshed` guard in `internal/slack/resolver_test.go`: verify `fetchGroups` is called at most once per invocation regardless of how many group IDs are missing
+- [x] T005 Add `fetchUser func(string) (string, error)`, `fetchChannel func(string) (string, error)`, `fetchGroups func() ([]UserGroup, error)`, and `groupRefreshed bool` fields to the `Resolver` struct in `internal/slack/resolver.go`
+- [x] T006 Implement `NewResolverWithFetch` constructor in `internal/slack/resolver.go` accepting all callback parameters; update `NewResolver` to call it with all nil callbacks (preserving existing call sites)
+- [x] T007 Update `UserDisplayName` in `internal/slack/resolver.go` to invoke `fetchUser` on miss, update `r.users[id]`, and return the resolved name (fall back to raw ID on callback error or nil callback)
+- [x] T008 Update `ChannelName` in `internal/slack/resolver.go` to invoke `fetchChannel` on miss, update `r.channels[id]`, and return the resolved name (fall back to raw ID on callback error or nil callback)
+- [x] T009 Update group resolution in `ResolveMentions` in `internal/slack/resolver.go` to invoke `fetchGroups` on first group miss (gated by `groupRefreshed`), rebuild `r.groups` from the returned slice, set `r.groupRefreshed = true`, and retry resolution
 
 **Checkpoint**: All T003–T004 tests pass. `NewResolver` call sites are unchanged. `go test -race ./internal/slack/...` passes.
 

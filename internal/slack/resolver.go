@@ -25,9 +25,13 @@ var urlPattern = regexp.MustCompile(`<(https?://[^|>]+)(?:\|([^>]+))?>`)
 // Resolver holds pre-built lookup maps for resolving Slack IDs to human-readable names.
 // It is constructed once per command invocation and discarded after output is written.
 type Resolver struct {
-	users    map[string]string
-	channels map[string]string
-	groups   map[string]string
+	users          map[string]string
+	channels       map[string]string
+	groups         map[string]string
+	fetchUser      func(string) (string, error) // nil if no targeted fetch available
+	fetchChannel   func(string) (string, error) // nil if no targeted fetch available
+	fetchGroups    func() ([]UserGroup, error)  // nil if no targeted fetch available
+	groupRefreshed bool                         // prevents repeat group list calls per invocation
 }
 
 // NewResolver constructs a Resolver from slices of users, channels, and user groups.
@@ -35,10 +39,29 @@ type Resolver struct {
 // For users, RealName is preferred; DisplayName is the fallback; raw ID
 // is used when both are empty.
 func NewResolver(users []User, channels []Channel, groups []UserGroup) *Resolver {
+	return NewResolverWithFetch(users, channels, groups, nil, nil, nil)
+}
+
+// NewResolverWithFetch constructs a Resolver with optional on-miss fetch callbacks.
+// fetchUser is called when a user ID is absent from the in-memory map; its result is
+// cached for the lifetime of the Resolver. fetchChannel works analogously for channels.
+// fetchGroups is called at most once per invocation on the first group ID miss; the
+// returned slice replaces the in-memory groups map.
+func NewResolverWithFetch(
+	users []User,
+	channels []Channel,
+	groups []UserGroup,
+	fetchUser func(string) (string, error),
+	fetchChannel func(string) (string, error),
+	fetchGroups func() ([]UserGroup, error),
+) *Resolver {
 	r := &Resolver{
-		users:    make(map[string]string, len(users)),
-		channels: make(map[string]string, len(channels)),
-		groups:   make(map[string]string, len(groups)),
+		users:        make(map[string]string, len(users)),
+		channels:     make(map[string]string, len(channels)),
+		groups:       make(map[string]string, len(groups)),
+		fetchUser:    fetchUser,
+		fetchChannel: fetchChannel,
+		fetchGroups:  fetchGroups,
 	}
 	for _, u := range users {
 		name := u.RealName
@@ -61,19 +84,33 @@ func NewResolver(users []User, channels []Channel, groups []UserGroup) *Resolver
 }
 
 // UserDisplayName returns the resolved display name for a user ID.
-// Falls back to the raw ID string if the user is not found.
+// On a miss it invokes fetchUser (if set), caches the result, and returns it.
+// Falls back to the raw ID string if unresolved.
 func (r *Resolver) UserDisplayName(id string) string {
 	if name, ok := r.users[id]; ok {
 		return name
+	}
+	if r.fetchUser != nil {
+		if name, err := r.fetchUser(id); err == nil && name != "" {
+			r.users[id] = name
+			return name
+		}
 	}
 	return id
 }
 
 // ChannelName returns the resolved name for a channel ID.
-// Falls back to the raw ID string if the channel is not found.
+// On a miss it invokes fetchChannel (if set), caches the result, and returns it.
+// Falls back to the raw ID string if unresolved.
 func (r *Resolver) ChannelName(id string) string {
 	if name, ok := r.channels[id]; ok {
 		return name
+	}
+	if r.fetchChannel != nil {
+		if name, err := r.fetchChannel(id); err == nil && name != "" {
+			r.channels[id] = name
+			return name
+		}
 	}
 	return id
 }
@@ -93,6 +130,26 @@ func (r *Resolver) ResolveChannelDisplay(id, name string) string {
 		return r.ChannelName(id)
 	}
 	return name
+}
+
+// resolveGroup returns the @-handle for a group ID. On the first miss it invokes
+// fetchGroups (if available), rebuilds the groups map, and retries the lookup.
+func (r *Resolver) resolveGroup(id string) string {
+	if handle, ok := r.groups[id]; ok {
+		return handle
+	}
+	if !r.groupRefreshed && r.fetchGroups != nil {
+		if groups, err := r.fetchGroups(); err == nil {
+			r.groups = make(map[string]string, len(groups))
+			for _, g := range groups {
+				if g.Handle != "" {
+					r.groups[g.ID] = g.Handle
+				}
+			}
+		}
+		r.groupRefreshed = true
+	}
+	return r.groups[id]
 }
 
 // ResolveMentions replaces Slack markup tokens in text with human-readable forms:
@@ -120,7 +177,7 @@ func (r *Resolver) ResolveMentions(text string) string {
 			return subs[2] // embedded label wins over group lookup
 		}
 		if len(subs) > 1 && subs[1] != "" {
-			if handle, ok := r.groups[subs[1]]; ok {
+			if handle := r.resolveGroup(subs[1]); handle != "" {
 				return "@" + handle
 			}
 		}
@@ -128,7 +185,7 @@ func (r *Resolver) ResolveMentions(text string) string {
 	})
 	text = bareGroupPattern.ReplaceAllStringFunc(text, func(match string) string {
 		subs := bareGroupPattern.FindStringSubmatch(match)
-		if handle, ok := r.groups[subs[1]]; ok {
+		if handle := r.resolveGroup(subs[1]); handle != "" {
 			return "@" + handle
 		}
 		return "@" + subs[1]

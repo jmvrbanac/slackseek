@@ -128,6 +128,14 @@ func TestClient_SetPageFetchedCallback_ClearWithNil(t *testing.T) {
 	}
 }
 
+// T002: tier4 rate limiter is initialized on a freshly constructed Client.
+func TestNewClient_Tier4IsNonNil(t *testing.T) {
+	c := NewClient("fake-token", "", nil)
+	if c.tier4 == nil {
+		t.Error("expected tier4 rate limiter to be non-nil on a freshly constructed client")
+	}
+}
+
 // TestCallWithRetry_SuccessOnFirstAttempt verifies that a successful fn is not retried.
 func TestCallWithRetry_SuccessOnFirstAttempt(t *testing.T) {
 	c := &Client{api: slackgo.New("fake-token")}

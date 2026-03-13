@@ -54,6 +54,7 @@ type Client struct {
 	cacheKey       string              // workspace-specific key for cache lookups
 	tier2          *rateLimiter        // Tier 2 methods: conversations.list, users.list, search.messages
 	tier3          *rateLimiter        // Tier 3 methods: conversations.history, conversations.replies
+	tier4          *rateLimiter        // Tier 4 methods: users.info, conversations.info (90+/min)
 }
 
 // SetRateLimitCallback registers fn to be called before sleeping on a 429
@@ -101,6 +102,7 @@ func NewClient(token, cookie string, httpClient *http.Client) *Client {
 		api:   slackgo.New(token, slackgo.OptionHTTPClient(&http.Client{Transport: transport})),
 		tier2: newRateLimiter(18), // Tier 2: 20+/min — use 18 for 10% margin
 		tier3: newRateLimiter(48), // Tier 3: 50+/min — use 48 for 10% margin
+		tier4: newRateLimiter(81), // Tier 4: 90+/min — use 81 for 10% margin
 	}
 }
 
