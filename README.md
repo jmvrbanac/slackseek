@@ -238,6 +238,52 @@ slackseek actions eng --since 24h --format json
 
 ---
 
+### `mcp serve`
+
+Start slackseek as a [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server over stdio. This lets MCP clients like Claude Code query your Slack workspaces as tools — no API keys or Slack App registration required.
+
+```sh
+slackseek mcp serve
+```
+
+**Claude Code** — register with one command:
+
+```sh
+claude mcp add slackseek -- slackseek mcp serve
+```
+
+Or manually add to your MCP client config (e.g. `~/.claude/claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "slackseek": {
+      "command": "slackseek",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
+```
+
+**Available tools:**
+
+| Tool | Description |
+|------|-------------|
+| `slack_search` | Full-text search across workspace |
+| `slack_history` | Channel message history |
+| `slack_messages` | Messages from a specific user |
+| `slack_thread` | All messages in a thread (by permalink URL) |
+| `slack_channels` | List channels, with optional name filter |
+| `slack_users` | List workspace members, with optional filter |
+| `slack_digest` | Per-channel message digest for a user |
+| `slack_postmortem` | Incident postmortem doc from channel history |
+| `slack_metrics` | Message activity metrics for a channel |
+| `slack_actions` | Extract action items from channel history |
+
+All tools accept an optional `workspace` parameter (name or URL). Date range parameters (`since`, `until`) accept ISO dates (`2026-03-01`), RFC 3339 timestamps, or relative durations (`7d`, `4h`, `30m`).
+
+---
+
 ### `cache clear`
 
 Remove cached channel and user data.

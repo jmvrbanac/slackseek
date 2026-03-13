@@ -80,12 +80,12 @@ go.mod / go.sum                  # updated for mcp-go dependency
 
 > **Write T011 first. Ensure it fails before writing T012–T015.**
 
-- [ ] T011 [US2] Write handler tests in `internal/mcp/tools_test.go` for: `TestHandleSlackSearch` (mock returns results → verify JSON marshaled in TextContent); `TestHandleSlackHistory` (mock returns messages → verify JSON); `TestHandleSlackMessages` (mock returns messages → verify JSON); `TestHandleSlackThread` (mock returns messages → verify JSON); also test error paths: user not found, channel not found, auth error (IsError=true, actionable message)
-- [ ] T012 [P] [US2] Implement `handleSlackSearch()` in `internal/mcp/tools.go` — parse `query` (required), `channels` (array), `user`, `since`, `until`, `limit`, `workspace` params; call `selectWorkspace`, `buildMCPClient`, resolve userID if `user` non-empty, call `SearchMessages`, marshal to JSON, return `TextContent`; wrap errors per contracts/mcp-tools.md
-- [ ] T013 [P] [US2] Implement `handleSlackHistory()` in `internal/mcp/tools.go` — parse `channel` (required), `since`, `until`, `limit`, `threads`, `workspace`; call `ResolveChannel`, `FetchHistory`; marshal messages to JSON; wrap "channel not found" with hint to use `slack_channels`
-- [ ] T014 [P] [US2] Implement `handleSlackMessages()` in `internal/mcp/tools.go` — parse `user` (required), `since`, `until`, `limit`, `workspace`; call `ResolveUser`, `GetUserMessages`; marshal to JSON; wrap "user not found" with hint to use `slack_users`
-- [ ] T015 [P] [US2] Implement `handleSlackThread()` in `internal/mcp/tools.go` — parse `url` (required), `workspace`; call `slack.ParsePermalink(url)` to extract channelID + threadTS; call `FetchThread`; marshal to JSON; wrap invalid permalink with actionable error
-- [ ] T016 [US2] Register `slack_search`, `slack_history`, `slack_messages`, `slack_thread` in `internal/mcp/server.go` using `s.AddTool(mcp.NewTool(...), handler)` — define parameter schemas matching `contracts/mcp-tools.md` (required fields, optional fields, descriptions)
+- [x] T011 [US2] Write handler tests in `internal/mcp/tools_test.go` for: `TestHandleSlackSearch` (mock returns results → verify JSON marshaled in TextContent); `TestHandleSlackHistory` (mock returns messages → verify JSON); `TestHandleSlackMessages` (mock returns messages → verify JSON); `TestHandleSlackThread` (mock returns messages → verify JSON); also test error paths: user not found, channel not found, auth error (IsError=true, actionable message)
+- [x] T012 [P] [US2] Implement `handleSlackSearch()` in `internal/mcp/tools.go` — parse `query` (required), `channels` (array), `user`, `since`, `until`, `limit`, `workspace` params; call `selectWorkspace`, `buildMCPClient`, resolve userID if `user` non-empty, call `SearchMessages`, marshal to JSON, return `TextContent`; wrap errors per contracts/mcp-tools.md
+- [x] T013 [P] [US2] Implement `handleSlackHistory()` in `internal/mcp/tools.go` — parse `channel` (required), `since`, `until`, `limit`, `threads`, `workspace`; call `ResolveChannel`, `FetchHistory`; marshal messages to JSON; wrap "channel not found" with hint to use `slack_channels`
+- [x] T014 [P] [US2] Implement `handleSlackMessages()` in `internal/mcp/tools.go` — parse `user` (required), `since`, `until`, `limit`, `workspace`; call `ResolveUser`, `GetUserMessages`; marshal to JSON; wrap "user not found" with hint to use `slack_users`
+- [x] T015 [P] [US2] Implement `handleSlackThread()` in `internal/mcp/tools.go` — parse `url` (required), `workspace`; call `slack.ParsePermalink(url)` to extract channelID + threadTS; call `FetchThread`; marshal to JSON; wrap invalid permalink with actionable error
+- [x] T016 [US2] Register `slack_search`, `slack_history`, `slack_messages`, `slack_thread` in `internal/mcp/server.go` using `s.AddTool(mcp.NewTool(...), handler)` — define parameter schemas matching `contracts/mcp-tools.md` (required fields, optional fields, descriptions)
 
 **Checkpoint**: `go test -race ./...` passes. Four retrieval tools are functional end-to-end. US2 complete.
 
@@ -99,10 +99,10 @@ go.mod / go.sum                  # updated for mcp-go dependency
 
 > **Write T017 first. Ensure it fails before writing T018–T019.**
 
-- [ ] T017 [US3] Write handler tests in `internal/mcp/tools_test.go` for: `TestHandleSlackChannels` (mock returns channels → verify JSON array, verify `filter` substring match applied, verify `include_archived` forwarded); `TestHandleSlackUsers` (mock returns users → verify JSON array, verify `filter` applied to displayName/realName/email)
-- [ ] T018 [P] [US3] Implement `handleSlackChannels()` in `internal/mcp/tools.go` — parse `filter`, `include_archived`, `workspace`; call `ListChannels(ctx, nil, includeArchived)`; apply case-insensitive substring filter on `name` if `filter` non-empty; marshal to JSON
-- [ ] T019 [P] [US3] Implement `handleSlackUsers()` in `internal/mcp/tools.go` — parse `filter`, `workspace`; call `ListUsers`; apply case-insensitive substring filter on `DisplayName + RealName + Email` if `filter` non-empty; marshal to JSON
-- [ ] T020 [US3] Register `slack_channels` and `slack_users` in `internal/mcp/server.go` with parameter schemas matching `contracts/mcp-tools.md`
+- [x] T017 [US3] Write handler tests in `internal/mcp/tools_test.go` for: `TestHandleSlackChannels` (mock returns channels → verify JSON array, verify `filter` substring match applied, verify `include_archived` forwarded); `TestHandleSlackUsers` (mock returns users → verify JSON array, verify `filter` applied to displayName/realName/email)
+- [x] T018 [P] [US3] Implement `handleSlackChannels()` in `internal/mcp/tools.go` — parse `filter`, `include_archived`, `workspace`; call `ListChannels(ctx, nil, includeArchived)`; apply case-insensitive substring filter on `name` if `filter` non-empty; marshal to JSON
+- [x] T019 [P] [US3] Implement `handleSlackUsers()` in `internal/mcp/tools.go` — parse `filter`, `workspace`; call `ListUsers`; apply case-insensitive substring filter on `DisplayName + RealName + Email` if `filter` non-empty; marshal to JSON
+- [x] T020 [US3] Register `slack_channels` and `slack_users` in `internal/mcp/server.go` with parameter schemas matching `contracts/mcp-tools.md`
 
 **Checkpoint**: `go test -race ./...` passes. Listing tools functional. US3 complete.
 
@@ -116,12 +116,12 @@ go.mod / go.sum                  # updated for mcp-go dependency
 
 > **Write T021 first. Ensure it fails before writing T022–T025.**
 
-- [ ] T021 [US4] Write handler tests in `internal/mcp/tools_test.go` for: `TestHandleSlackDigest` (mock user messages grouped by channel → verify ChannelDigest JSON); `TestHandleSlackPostmortem` (mock history → verify IncidentDoc JSON); `TestHandleSlackMetrics` (mock history → verify ChannelMetrics JSON); `TestHandleSlackActions` (mock history → verify ActionItem array JSON); test missing required params return IsError=true
-- [ ] T022 [P] [US4] Implement `handleSlackDigest()` in `internal/mcp/tools.go` — parse `user` (required), `since`, `until`, `workspace`; resolve user, call `GetUserMessages` with empty channelID to get all channels; group messages by channelID into `[]output.ChannelDigest`; marshal to JSON
-- [ ] T023 [P] [US4] Implement `handleSlackPostmortem()` in `internal/mcp/tools.go` — parse `channel` (required), `since`, `until`, `workspace`; resolve channel, fetch history with threads=true; build `output.IncidentDoc` (reuse `output.BuildIncidentDoc` if it exists, else reproduce logic inline); marshal to JSON
-- [ ] T024 [P] [US4] Implement `handleSlackMetrics()` in `internal/mcp/tools.go` — parse `channel` (required), `since`, `until`, `workspace`; resolve channel, fetch history; build `output.ChannelMetrics` (reuse builder if exported, else reproduce logic inline); marshal to JSON
-- [ ] T025 [P] [US4] Implement `handleSlackActions()` in `internal/mcp/tools.go` — parse `channel` (required), `since`, `until`, `workspace`; resolve channel, fetch history; extract `[]output.ActionItem` (reuse `output.ExtractActions` if exported, else reproduce logic inline); marshal to JSON
-- [ ] T026 [US4] Register `slack_digest`, `slack_postmortem`, `slack_metrics`, `slack_actions` in `internal/mcp/server.go` with parameter schemas matching `contracts/mcp-tools.md`
+- [x] T021 [US4] Write handler tests in `internal/mcp/tools_test.go` for: `TestHandleSlackDigest` (mock user messages grouped by channel → verify ChannelDigest JSON); `TestHandleSlackPostmortem` (mock history → verify IncidentDoc JSON); `TestHandleSlackMetrics` (mock history → verify ChannelMetrics JSON); `TestHandleSlackActions` (mock history → verify ActionItem array JSON); test missing required params return IsError=true
+- [x] T022 [P] [US4] Implement `handleSlackDigest()` in `internal/mcp/tools.go` — parse `user` (required), `since`, `until`, `workspace`; resolve user, call `GetUserMessages` with empty channelID to get all channels; group messages by channelID into `[]output.ChannelDigest`; marshal to JSON
+- [x] T023 [P] [US4] Implement `handleSlackPostmortem()` in `internal/mcp/tools.go` — parse `channel` (required), `since`, `until`, `workspace`; resolve channel, fetch history with threads=true; build `output.IncidentDoc` (reuse `output.BuildIncidentDoc` if it exists, else reproduce logic inline); marshal to JSON
+- [x] T024 [P] [US4] Implement `handleSlackMetrics()` in `internal/mcp/tools.go` — parse `channel` (required), `since`, `until`, `workspace`; resolve channel, fetch history; build `output.ChannelMetrics` (reuse builder if exported, else reproduce logic inline); marshal to JSON
+- [x] T025 [P] [US4] Implement `handleSlackActions()` in `internal/mcp/tools.go` — parse `channel` (required), `since`, `until`, `workspace`; resolve channel, fetch history; extract `[]output.ActionItem` (reuse `output.ExtractActions` if exported, else reproduce logic inline); marshal to JSON
+- [x] T026 [US4] Register `slack_digest`, `slack_postmortem`, `slack_metrics`, `slack_actions` in `internal/mcp/server.go` with parameter schemas matching `contracts/mcp-tools.md`
 
 **Checkpoint**: `go test -race ./...` passes. All 10 MCP tools functional. US4 complete.
 
@@ -131,11 +131,11 @@ go.mod / go.sum                  # updated for mcp-go dependency
 
 **Purpose**: Verify quality gates, fix any remaining issues, confirm cross-platform builds.
 
-- [ ] T027 Run `go test -race ./...` from repo root — fix any test failures or race conditions before proceeding
-- [ ] T028 Run `golangci-lint run` — fix all lint issues (unused vars, missing error wrapping, function length violations, etc.)
-- [ ] T029 [P] `GOOS=linux go build ./...` — confirm Linux cross-compile succeeds
-- [ ] T030 [P] `GOOS=darwin go build ./...` — confirm macOS cross-compile succeeds
-- [ ] T031 Validate quickstart.md scenarios manually: start `slackseek mcp serve`, connect MCP client, verify initialize handshake, call `slack_channels` + `slack_users`, confirm JSON output shape matches `contracts/mcp-tools.md`
+- [x] T027 Run `go test -race ./...` from repo root — fix any test failures or race conditions before proceeding
+- [x] T028 Run `golangci-lint run` — fix all lint issues (unused vars, missing error wrapping, function length violations, etc.)
+- [x] T029 [P] `GOOS=linux go build ./...` — confirm Linux cross-compile succeeds
+- [x] T030 [P] `GOOS=darwin go build ./...` — confirm macOS cross-compile succeeds
+- [x] T031 Validate quickstart.md scenarios manually: start `slackseek mcp serve`, connect MCP client, verify initialize handshake, call `slack_channels` + `slack_users`, confirm JSON output shape matches `contracts/mcp-tools.md`
 
 ---
 
