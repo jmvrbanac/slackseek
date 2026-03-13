@@ -1,5 +1,7 @@
 # CLI Behavior Contract: Lazy Entity Cache
 
+**Status**: Implemented (Phases 1–8 complete, 2026-03-13)
+
 This document defines observable behavior changes for slackseek commands after
 implementing the lazy entity cache feature.
 

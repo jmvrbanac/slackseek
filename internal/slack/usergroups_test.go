@@ -119,6 +119,54 @@ func TestListUserGroupsCached_FreshCache_APINotCalled(t *testing.T) {
 	}
 }
 
+// T025: ForceRefreshUserGroups bypasses cache load and updates the cache file.
+
+func TestForceRefreshUserGroups_CalledEvenWithFreshCache(t *testing.T) {
+	dir := t.TempDir()
+	store := cache.NewStore(dir, time.Hour)
+	key := "testkey"
+	// Seed cache with old data to confirm it is bypassed.
+	old, _ := json.Marshal([]UserGroup{{ID: "SOLD", Handle: "old-team", Name: "Old Team"}})
+	if err := store.Save(key, "user_groups", old); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	body := `{"ok":true,"usergroups":[{"id":"SNEW","handle":"new-team","name":"New Team"}]}`
+	c := NewClientWithCache("token", "", mockUGResponse(body), store, key)
+	groups, err := c.ForceRefreshUserGroups(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(groups) != 1 || groups[0].ID != "SNEW" {
+		t.Errorf("expected fresh data from API, got %v", groups)
+	}
+}
+
+func TestForceRefreshUserGroups_UpdatesCache(t *testing.T) {
+	dir := t.TempDir()
+	store := cache.NewStore(dir, time.Hour)
+	key := "testkey"
+	old, _ := json.Marshal([]UserGroup{{ID: "SOLD", Handle: "old-team", Name: "Old Team"}})
+	if err := store.Save(key, "user_groups", old); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	body := `{"ok":true,"usergroups":[{"id":"SNEW","handle":"new-team","name":"New Team"}]}`
+	c := NewClientWithCache("token", "", mockUGResponse(body), store, key)
+	if _, err := c.ForceRefreshUserGroups(context.Background()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	data, hit, _ := store.LoadStable(key, "user_groups")
+	if !hit {
+		t.Fatal("expected cache file to exist after ForceRefreshUserGroups")
+	}
+	var groups []UserGroup
+	if err := json.Unmarshal(data, &groups); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(groups) != 1 || groups[0].ID != "SNEW" {
+		t.Errorf("expected cache to contain fresh data SNEW, got %+v", groups)
+	}
+}
+
 // T012: stale cache (past TTL) must be returned as a hit — LoadStable ignores TTL.
 func TestListUserGroupsCached_StaleCache_ReturnedAsCacheHit(t *testing.T) {
 	dir := t.TempDir()

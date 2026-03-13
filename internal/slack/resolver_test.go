@@ -10,7 +10,7 @@ import (
 func TestNewResolverWithFetch_FetchUserInvokedOnMiss(t *testing.T) {
 	calls := 0
 	r := NewResolverWithFetch(nil, nil, nil,
-		func(id string) (string, error) {
+		func(_ string) (string, error) {
 			calls++
 			return "Alice Smith", nil
 		}, nil, nil)
@@ -26,7 +26,7 @@ func TestNewResolverWithFetch_FetchUserInvokedOnMiss(t *testing.T) {
 func TestNewResolverWithFetch_FetchUserNotCalledOnCachedID(t *testing.T) {
 	calls := 0
 	r := NewResolverWithFetch(nil, nil, nil,
-		func(id string) (string, error) {
+		func(_ string) (string, error) {
 			calls++
 			return "Alice Smith", nil
 		}, nil, nil)

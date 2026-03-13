@@ -97,9 +97,9 @@
 
 **Independent Test**: In `resolver_test.go`, supply a `fetchGroups` stub returning a new group; verify it is called exactly once for two group misses in the same `ResolveMentions` call, and both group mentions resolve.
 
-- [ ] T024 [US4] Implement `(*Client).ForceRefreshUserGroups(ctx context.Context) ([]UserGroup, error)` in `internal/slack/usergroups.go`: calls `listUserGroupsCached` with a `nil` store (bypasses LoadStable, hits API directly), then saves the result to cache via `c.store.Save` if store is non-nil
-- [ ] T025 [US4] Write failing unit tests for `ForceRefreshUserGroups` in `internal/slack/usergroups_test.go`: verify the list API is called even when a valid cache file exists, and the cache file is updated with the fresh data
-- [ ] T026 [US4] Add `fetchGroups` closure to `buildResolver` in `cmd/resolver.go` and pass it to `NewResolverWithFetch`: closure captures `ctx` and `c`, calls `c.ForceRefreshUserGroups(ctx)`, returns the `[]UserGroup` slice
+- [x] T024 [US4] Implement `(*Client).ForceRefreshUserGroups(ctx context.Context) ([]UserGroup, error)` in `internal/slack/usergroups.go`: calls `listUserGroupsCached` with a `nil` store (bypasses LoadStable, hits API directly), then saves the result to cache via `c.store.Save` if store is non-nil
+- [x] T025 [US4] Write failing unit tests for `ForceRefreshUserGroups` in `internal/slack/usergroups_test.go`: verify the list API is called even when a valid cache file exists, and the cache file is updated with the fresh data
+- [x] T026 [US4] Add `fetchGroups` closure to `buildResolver` in `cmd/resolver.go` and pass it to `NewResolverWithFetch`: closure captures `ctx` and `c`, calls `c.ForceRefreshUserGroups(ctx)`, returns the `[]UserGroup` slice
 
 **Checkpoint**: T004 and T025 tests pass. A command with group mentions absent from cache resolves all handles with a single `usergroups.list` call. `go test -race ./...` passes.
 
@@ -111,8 +111,8 @@
 
 **Independent Test**: Run any command with `--refresh-cache`; verify all three entity list API calls are made and cache files are replaced.
 
-- [ ] T027 [US5] Write or extend tests in `cmd/resolver_test.go` to verify that when `flagRefreshCache` is true, `buildCacheStore` clears the workspace cache dir, and the subsequent `listUsersCached` / `listChannelsCached` / `listUserGroupsCached` calls hit the API (cold start after clear)
-- [ ] T028 [US5] Confirm `buildCacheStore` in `cmd/root.go` requires no code change: `store.Clear(key)` before resolver construction already handles the force-refresh path; add a comment documenting that `--refresh-cache` triggers cold-start for entity caches by clearing files
+- [x] T027 [US5] Write or extend tests in `cmd/resolver_test.go` to verify that when `flagRefreshCache` is true, `buildCacheStore` clears the workspace cache dir, and the subsequent `listUsersCached` / `listChannelsCached` / `listUserGroupsCached` calls hit the API (cold start after clear)
+- [x] T028 [US5] Confirm `buildCacheStore` in `cmd/root.go` requires no code change: `store.Clear(key)` before resolver construction already handles the force-refresh path; add a comment documenting that `--refresh-cache` triggers cold-start for entity caches by clearing files
 
 **Checkpoint**: `--refresh-cache` produces a full entity re-fetch. Existing flag exclusion tests (`--refresh-cache` + `--no-cache`) still pass.
 
@@ -120,11 +120,11 @@
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T029 Update the `--cache-ttl` flag description string in `cmd/root.go` to note it no longer controls entity (user/channel/group) cache expiry; controls history cache only
-- [ ] T030 [P] Update `specs/008-lazy-entity-cache/contracts/cli-behavior.md` to mark as implemented if any observable behavior differs from the contract
-- [ ] T031 Run `golangci-lint run` and resolve any `funlen`, `cyclop`, or other violations introduced by new functions
-- [ ] T032 Run `go test -race ./...` and confirm zero failures and zero races across the full test suite
-- [ ] T033 [P] Run `GOOS=linux go build ./...` and `GOOS=darwin go build ./...` to confirm cross-platform build passes
+- [x] T029 Update the `--cache-ttl` flag description string in `cmd/root.go` to note it no longer controls entity (user/channel/group) cache expiry; controls history cache only
+- [x] T030 [P] Update `specs/008-lazy-entity-cache/contracts/cli-behavior.md` to mark as implemented if any observable behavior differs from the contract
+- [x] T031 Run `golangci-lint run` and resolve any `funlen`, `cyclop`, or other violations introduced by new functions
+- [x] T032 Run `go test -race ./...` and confirm zero failures and zero races across the full test suite
+- [x] T033 [P] Run `GOOS=linux go build ./...` and `GOOS=darwin go build ./...` to confirm cross-platform build passes
 
 ---
 

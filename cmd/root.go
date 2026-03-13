@@ -94,7 +94,7 @@ func registerRootFlags(root *cobra.Command) {
 	f.StringVar(&flagFormat, "format", "text", "output format: text | table | json | markdown")
 	f.StringVar(&flagFrom, "from", "", "start of date range: YYYY-MM-DD or RFC 3339")
 	f.StringVar(&flagTo, "to", "", "end of date range: YYYY-MM-DD or RFC 3339")
-	f.DurationVar(&flagCacheTTL, "cache-ttl", 24*time.Hour, "how long cached channel/user lists remain valid (0 disables caching)")
+	f.DurationVar(&flagCacheTTL, "cache-ttl", 24*time.Hour, "how long history cache entries remain valid (0 disables caching; does not affect entity/user/channel/group caches)")
 	f.BoolVar(&flagRefreshCache, "refresh-cache", false, "force a fresh API fetch and overwrite the cached data")
 	f.BoolVar(&flagNoCache, "no-cache", false, "bypass the cache entirely (read and write)")
 	f.BoolVarP(&flagQuiet, "quiet", "q", false, "suppress progress and rate-limit notices from stderr")
@@ -118,6 +118,9 @@ func buildCacheStore(ws tokens.Workspace) *cache.Store {
 	}
 	store := cache.NewStore(filepath.Join(userCacheDir, "slackseek"), flagCacheTTL)
 	if flagRefreshCache {
+		// --refresh-cache triggers a cold start for entity caches (users, channels,
+		// groups) by removing the workspace directory. Subsequent listUsersCached,
+		// listChannelsCached, and listUserGroupsCached calls will hit the API.
 		_ = store.Clear(cache.WorkspaceKey(ws.URL))
 	}
 	return store

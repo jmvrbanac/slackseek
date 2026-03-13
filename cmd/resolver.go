@@ -37,23 +37,35 @@ func buildResolver(ctx context.Context, ws tokens.Workspace) *slack.Resolver {
 		fmt.Fprintf(os.Stderr, "Warning: could not resolve user groups: %v\n", err)
 		groups = nil
 	}
+	fetchUser, fetchChannel, fetchGroups := buildFetchCallbacks(ctx, c)
+	return slack.NewResolverWithFetch(users, channels, groups, fetchUser, fetchChannel, fetchGroups)
+}
+
+// buildFetchCallbacks returns the three on-miss callbacks used by NewResolverWithFetch.
+func buildFetchCallbacks(ctx context.Context, c *slack.Client) (
+	func(string) (string, error),
+	func(string) (string, error),
+	func() ([]slack.UserGroup, error),
+) {
 	fetchUser := func(id string) (string, error) {
-		u, fetchErr := c.FetchUser(ctx, id)
-		if fetchErr != nil {
-			return "", fetchErr
+		u, err := c.FetchUser(ctx, id)
+		if err != nil {
+			return "", err
 		}
-		name := u.RealName
-		if name == "" {
-			name = u.DisplayName
+		if u.RealName != "" {
+			return u.RealName, nil
 		}
-		return name, nil
+		return u.DisplayName, nil
 	}
 	fetchChannel := func(id string) (string, error) {
-		ch, fetchErr := c.FetchChannel(ctx, id)
-		if fetchErr != nil {
-			return "", fetchErr
+		ch, err := c.FetchChannel(ctx, id)
+		if err != nil {
+			return "", err
 		}
 		return ch.Name, nil
 	}
-	return slack.NewResolverWithFetch(users, channels, groups, fetchUser, fetchChannel, nil)
+	fetchGroups := func() ([]slack.UserGroup, error) {
+		return c.ForceRefreshUserGroups(ctx)
+	}
+	return fetchUser, fetchChannel, fetchGroups
 }

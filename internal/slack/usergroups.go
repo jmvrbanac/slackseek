@@ -61,3 +61,29 @@ func (c *Client) ListUserGroups(ctx context.Context) ([]UserGroup, error) {
 		return result, nil
 	})
 }
+
+// ForceRefreshUserGroups calls the usergroups.list API unconditionally (bypassing
+// any cached data) and writes the fresh result back to the cache if a store is set.
+func (c *Client) ForceRefreshUserGroups(ctx context.Context) ([]UserGroup, error) {
+	// Pass nil store so listUserGroupsCached skips the cache load.
+	groups, err := listUserGroupsCached(ctx, nil, "", func(ctx context.Context) ([]UserGroup, error) {
+		apiGroups, err := c.api.GetUserGroupsContext(ctx, slackgo.GetUserGroupsOptionIncludeDisabled(false))
+		if err != nil {
+			return nil, fmt.Errorf("force refresh user groups: %w", err)
+		}
+		result := make([]UserGroup, len(apiGroups))
+		for i, g := range apiGroups {
+			result[i] = UserGroup{ID: g.ID, Handle: g.Handle, Name: g.Name}
+		}
+		return result, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if c.store != nil && c.cacheKey != "" {
+		if data, jsonErr := json.Marshal(groups); jsonErr == nil {
+			_ = c.store.Save(c.cacheKey, "user_groups", data)
+		}
+	}
+	return groups, nil
+}
