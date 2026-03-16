@@ -258,28 +258,68 @@ func TestIsMultiDay(t *testing.T) {
 	}
 }
 
-// T005: Table-driven tests for enumeratePastDays covering all edge cases.
-func TestEnumeratePastDays(t *testing.T) {
-	now := time.Now().UTC()
-	today := now.Truncate(24 * time.Hour)
-	yesterday := today.Add(-24 * time.Hour)
-	threeDaysAgo := today.Add(-3 * 24 * time.Hour)
-	twoWeeksAgo := today.Add(-14 * 24 * time.Hour)
+// runEnumeratePastDaysCases is a shared helper for enumeratePastDays table-driven tests.
+func runEnumeratePastDaysCases(t *testing.T, tests []struct {
+	name     string
+	from, to time.Time
+	wantNil  bool
+	wantLen  int
+	checkFn  func(t *testing.T, got []string)
+}) {
+	t.Helper()
+	for _, c := range tests {
+		t.Run(c.name, func(t *testing.T) {
+			got := enumeratePastDays(c.from, c.to)
+			if c.wantNil {
+				if got != nil {
+					t.Errorf("want nil, got %v", got)
+				}
+				return
+			}
+			if len(got) != c.wantLen {
+				t.Fatalf("got %d days, want %d: %v", len(got), c.wantLen, got)
+			}
+			if c.checkFn != nil {
+				c.checkFn(t, got)
+			}
+		})
+	}
+}
 
+// T005a: enumeratePastDays returns nil for invalid/degenerate inputs.
+func TestEnumeratePastDays_InvalidInputs(t *testing.T) {
 	jan1 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	jan4 := time.Date(2026, 1, 4, 0, 0, 0, 0, time.UTC)
-
-	type tc struct {
+	tests := []struct {
 		name     string
 		from, to time.Time
 		wantNil  bool
 		wantLen  int
 		checkFn  func(t *testing.T, got []string)
-	}
-	tests := []tc{
+	}{
 		{name: "nil from (zero)", from: time.Time{}, to: jan4, wantNil: true},
 		{name: "nil to (zero)", from: jan1, to: time.Time{}, wantNil: true},
 		{name: "single-day range", from: jan1, to: jan1.Add(12 * time.Hour), wantNil: true},
+	}
+	runEnumeratePastDaysCases(t, tests)
+}
+
+// T005b: enumeratePastDays returns correct day slices for valid multi-day ranges.
+func TestEnumeratePastDays_ValidRanges(t *testing.T) {
+	now := time.Now().UTC()
+	today := now.Truncate(24 * time.Hour)
+	yesterday := today.Add(-24 * time.Hour)
+	threeDaysAgo := today.Add(-3 * 24 * time.Hour)
+	twoWeeksAgo := today.Add(-14 * 24 * time.Hour)
+	jan1 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	jan4 := time.Date(2026, 1, 4, 0, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name     string
+		from, to time.Time
+		wantNil  bool
+		wantLen  int
+		checkFn  func(t *testing.T, got []string)
+	}{
 		{
 			name: "range entirely in past", from: jan1, to: jan4, wantLen: 3,
 			checkFn: func(t *testing.T, got []string) {
@@ -305,23 +345,7 @@ func TestEnumeratePastDays(t *testing.T) {
 			},
 		},
 	}
-	for _, c := range tests {
-		t.Run(c.name, func(t *testing.T) {
-			got := enumeratePastDays(c.from, c.to)
-			if c.wantNil {
-				if got != nil {
-					t.Errorf("want nil, got %v", got)
-				}
-				return
-			}
-			if len(got) != c.wantLen {
-				t.Fatalf("got %d days, want %d: %v", len(got), c.wantLen, got)
-			}
-			if c.checkFn != nil {
-				c.checkFn(t, got)
-			}
-		})
-	}
+	runEnumeratePastDaysCases(t, tests)
 }
 
 // ===== Phase 3: partitionByDay, buildGapRanges, fetchHistoryMultiDayCached =====
@@ -592,6 +616,38 @@ func TestFetchHistoryMultiDayCached_OverlappingWindow(t *testing.T) {
 	}
 }
 
+// verifyCrossDay checks day1 cache contains both root and reply, day2 cache doesn't contain reply.
+func verifyCrossDay(t *testing.T, store *cache.Store, wsKey, channelID string, day1, day2 time.Time) {
+	t.Helper()
+	day1Str := day1.Format("2006-01-02")
+	data1, hit1, _ := store.LoadStable(wsKey, cacheKind(channelID, day1Str))
+	if !hit1 {
+		t.Fatal("expected cache entry for day1")
+	}
+	var day1Msgs []slack.Message
+	_ = json.Unmarshal(data1, &day1Msgs)
+	found := map[string]bool{}
+	for _, m := range day1Msgs {
+		found[m.Timestamp] = true
+	}
+	if !found["root-ts"] {
+		t.Error("day1 cache should contain root")
+	}
+	if !found["reply-ts"] {
+		t.Error("day1 cache should contain reply (cross-day thread)")
+	}
+	day2Str := day2.Format("2006-01-02")
+	if data2, hit2, _ := store.LoadStable(wsKey, cacheKind(channelID, day2Str)); hit2 {
+		var day2Msgs []slack.Message
+		_ = json.Unmarshal(data2, &day2Msgs)
+		for _, m := range day2Msgs {
+			if m.Timestamp == "reply-ts" {
+				t.Error("reply should not be in day2 cache")
+			}
+		}
+	}
+}
+
 // T015: Root at 23:55 day1, reply at 00:10 day2 → both in day1 cache; reply not in day2.
 func TestFetchHistoryMultiDayCached_CrossDayThread(t *testing.T) {
 	store := cache.NewStore(t.TempDir(), time.Hour)
@@ -613,47 +669,17 @@ func TestFetchHistoryMultiDayCached_CrossDayThread(t *testing.T) {
 		ThreadDepth: 1,
 		ThreadTS:    "root-ts",
 	}
-
 	fetchFn := func(_ context.Context, _ string, _ slack.DateRange, _ int, _ bool) ([]slack.Message, error) {
 		return []slack.Message{root, reply}, nil
 	}
 
 	from := day1
 	dr := slack.DateRange{From: &from, To: &now}
-
 	_, err := fetchHistoryMultiDayCached(context.Background(), fetchFn, store, wsKey, channelID, dr, 0, false, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
-	day1Str := day1.Format("2006-01-02")
-	data1, hit1, _ := store.LoadStable(wsKey, cacheKind(channelID, day1Str))
-	if !hit1 {
-		t.Fatal("expected cache entry for day1")
-	}
-	var day1Msgs []slack.Message
-	_ = json.Unmarshal(data1, &day1Msgs)
-	found := map[string]bool{}
-	for _, m := range day1Msgs {
-		found[m.Timestamp] = true
-	}
-	if !found["root-ts"] {
-		t.Error("day1 cache should contain root")
-	}
-	if !found["reply-ts"] {
-		t.Error("day1 cache should contain reply (cross-day thread)")
-	}
-
-	day2Str := day2.Format("2006-01-02")
-	if data2, hit2, _ := store.LoadStable(wsKey, cacheKind(channelID, day2Str)); hit2 {
-		var day2Msgs []slack.Message
-		_ = json.Unmarshal(data2, &day2Msgs)
-		for _, m := range day2Msgs {
-			if m.Timestamp == "reply-ts" {
-				t.Error("reply should not be in day2 cache")
-			}
-		}
-	}
+	verifyCrossDay(t, store, wsKey, channelID, day1, day2)
 }
 
 // ===== Phase 4: --no-cache =====
@@ -732,18 +758,9 @@ func TestFetchHistoryMultiDayCached_NoCacheStillWrites(t *testing.T) {
 
 // ===== Phase 5: --limit =====
 
-// T025: fetchFn called with limit=0; SaveStable gets full buckets; return len == user limit.
-func TestFetchHistoryMultiDayCached_LimitAppliedAtMerge(t *testing.T) {
-	store := cache.NewStore(t.TempDir(), time.Hour)
-	wsKey, channelID := "testws", "C01"
-
-	now := time.Now().UTC()
-	today := now.Truncate(24 * time.Hour)
-	yesterday := today.Add(-24 * time.Hour)
-	twoDaysAgo := today.Add(-2 * 24 * time.Hour)
-
-	// 10 messages spread across 3 days (3 + 3 + 4)
-	allMsgs := []slack.Message{
+// buildLimitTestMsgs builds 10 messages spread across twoDaysAgo (3), yesterday (3), today (4).
+func buildLimitTestMsgs(twoDaysAgo, yesterday, today time.Time) []slack.Message {
+	return []slack.Message{
 		{Timestamp: "1.0", Time: twoDaysAgo.Add(1 * time.Hour), ThreadDepth: 0},
 		{Timestamp: "2.0", Time: twoDaysAgo.Add(2 * time.Hour), ThreadDepth: 0},
 		{Timestamp: "3.0", Time: twoDaysAgo.Add(3 * time.Hour), ThreadDepth: 0},
@@ -755,7 +772,19 @@ func TestFetchHistoryMultiDayCached_LimitAppliedAtMerge(t *testing.T) {
 		{Timestamp: "9.0", Time: today.Add(3 * time.Hour), ThreadDepth: 0},
 		{Timestamp: "10.0", Time: today.Add(4 * time.Hour), ThreadDepth: 0},
 	}
+}
 
+// T025: fetchFn called with limit=0; SaveStable gets full buckets; return len == user limit.
+func TestFetchHistoryMultiDayCached_LimitAppliedAtMerge(t *testing.T) {
+	store := cache.NewStore(t.TempDir(), time.Hour)
+	wsKey, channelID := "testws", "C01"
+
+	now := time.Now().UTC()
+	today := now.Truncate(24 * time.Hour)
+	yesterday := today.Add(-24 * time.Hour)
+	twoDaysAgo := today.Add(-2 * 24 * time.Hour)
+
+	allMsgs := buildLimitTestMsgs(twoDaysAgo, yesterday, today)
 	var capturedLimit int
 	fetchFn := func(_ context.Context, _ string, _ slack.DateRange, limit int, _ bool) ([]slack.Message, error) {
 		capturedLimit = limit
@@ -764,7 +793,6 @@ func TestFetchHistoryMultiDayCached_LimitAppliedAtMerge(t *testing.T) {
 
 	from, to := twoDaysAgo, now
 	dr := slack.DateRange{From: &from, To: &to}
-
 	got, err := fetchHistoryMultiDayCached(context.Background(), fetchFn, store, wsKey, channelID, dr, 3, false, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

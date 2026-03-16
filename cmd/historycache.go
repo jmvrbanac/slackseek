@@ -200,6 +200,37 @@ func buildGapRanges(
 	return cached, gaps, nil
 }
 
+// fetchGaps fetches all gap ranges and returns messages partitioned by day.
+func fetchGaps(ctx context.Context, fetchFn historyFetchFunc, channelID string, gaps []slack.DateRange, threads bool) (map[string][]slack.Message, error) {
+	fetched := make(map[string][]slack.Message)
+	for _, gap := range gaps {
+		msgs, err := fetchFn(ctx, channelID, gap, 0, threads)
+		if err != nil {
+			return nil, err
+		}
+		for day, bucket := range partitionByDay(msgs) {
+			fetched[day] = append(fetched[day], bucket...)
+		}
+	}
+	return fetched, nil
+}
+
+// mergeAndLimit merges cached and fetched message maps, sorts by timestamp, and applies limit.
+func mergeAndLimit(cached, fetched map[string][]slack.Message, limit int) []slack.Message {
+	var all []slack.Message
+	for _, msgs := range cached {
+		all = append(all, msgs...)
+	}
+	for _, msgs := range fetched {
+		all = append(all, msgs...)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].Timestamp < all[j].Timestamp })
+	if limit > 0 && len(all) > limit {
+		all = all[:limit]
+	}
+	return all
+}
+
 // fetchHistoryMultiDayCached is the testable inner implementation for multi-day ranges.
 // It enumerates past days, loads cached ones, fetches each gap with limit=0, partitions
 // results by day, saves complete past-day buckets, merges all messages, and applies limit.
@@ -222,33 +253,13 @@ func fetchHistoryMultiDayCached(
 	if err != nil {
 		return nil, err
 	}
-
+	fetched, err := fetchGaps(ctx, fetchFn, channelID, gaps, threads)
+	if err != nil {
+		return nil, err
+	}
 	today := time.Now().UTC().Format("2006-01-02")
-	fetched := make(map[string][]slack.Message)
-	for _, gap := range gaps {
-		msgs, fetchErr := fetchFn(ctx, channelID, gap, 0, threads)
-		if fetchErr != nil {
-			return nil, fetchErr
-		}
-		for day, bucket := range partitionByDay(msgs) {
-			fetched[day] = append(fetched[day], bucket...)
-		}
-	}
-
 	saveFetchedDays(store, wsKey, channelID, today, fetched)
-
-	var all []slack.Message
-	for _, msgs := range cached {
-		all = append(all, msgs...)
-	}
-	for _, msgs := range fetched {
-		all = append(all, msgs...)
-	}
-	sort.Slice(all, func(i, j int) bool { return all[i].Timestamp < all[j].Timestamp })
-	if limit > 0 && len(all) > limit {
-		all = all[:limit]
-	}
-	return all, nil
+	return mergeAndLimit(cached, fetched, limit), nil
 }
 
 // FetchHistoryCached checks the day cache before calling FetchHistory and
