@@ -785,3 +785,129 @@ func TestHandleSlackActions_ChannelNotFound(t *testing.T) {
 		t.Error("expected hint to use slack_channels")
 	}
 }
+
+// --- buildMCPResolver tests ---
+
+func TestBuildMCPResolver_PopulatesUserMap(t *testing.T) {
+	mock := &mockSlackClient{
+		users: []slack.User{
+			{ID: "U123", RealName: "Alice Smith", DisplayName: "alice"},
+		},
+		channels: []slack.Channel{},
+	}
+	r := buildMCPResolver(context.Background(), mock)
+	if r == nil {
+		t.Fatal("expected non-nil resolver")
+	}
+	if got := r.UserDisplayName("U123"); got != "Alice Smith" {
+		t.Errorf("expected 'Alice Smith', got %q", got)
+	}
+}
+
+func TestBuildMCPResolver_NilOnListUsersError(t *testing.T) {
+	mock := &mockSlackClient{usersErr: errors.New("api down")}
+	r := buildMCPResolver(context.Background(), mock)
+	if r != nil {
+		t.Error("expected nil resolver when ListUsers fails")
+	}
+}
+
+// --- entity resolution in handler output tests ---
+
+func TestHandleSlackHistory_ResolvesUserName(t *testing.T) {
+	mock := &mockSlackClient{
+		historyMsgs: []slack.Message{
+			{Timestamp: "1700000000.000000", UserID: "U123", Text: "hello", ChannelID: "C1"},
+		},
+		users:    []slack.User{{ID: "U123", RealName: "Alice Smith"}},
+		channels: []slack.Channel{},
+	}
+	req := newCallRequest(map[string]any{"channel": "general"})
+	result, err := handleSlackHistory(context.Background(), req, successTC(), mockBuilder(mock))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	text := extractTextContent(t, result)
+	var msgs []map[string]any
+	if jsonErr := json.Unmarshal([]byte(text), &msgs); jsonErr != nil {
+		t.Fatalf("invalid JSON: %v\n%s", jsonErr, text)
+	}
+	if msgs[0]["userName"] != "Alice Smith" {
+		t.Errorf("expected userName 'Alice Smith', got %v", msgs[0]["userName"])
+	}
+}
+
+func TestHandleSlackHistory_ResolvesMentions(t *testing.T) {
+	mock := &mockSlackClient{
+		historyMsgs: []slack.Message{
+			{Timestamp: "1700000000.000000", UserID: "U456", Text: "ping <@U123>", ChannelID: "C1"},
+		},
+		users:    []slack.User{{ID: "U123", RealName: "Alice Smith"}},
+		channels: []slack.Channel{},
+	}
+	req := newCallRequest(map[string]any{"channel": "general"})
+	result, err := handleSlackHistory(context.Background(), req, successTC(), mockBuilder(mock))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	text := extractTextContent(t, result)
+	var msgs []map[string]any
+	if jsonErr := json.Unmarshal([]byte(text), &msgs); jsonErr != nil {
+		t.Fatalf("invalid JSON: %v\n%s", jsonErr, text)
+	}
+	if msgs[0]["text"] != "ping @Alice Smith" {
+		t.Errorf("expected resolved mention, got %v", msgs[0]["text"])
+	}
+}
+
+func TestHandleSlackSearch_ResolvesUserName(t *testing.T) {
+	mock := &mockSlackClient{
+		searchResults: []slack.SearchResult{
+			{
+				Message: slack.Message{
+					Timestamp: "1700000000.000000",
+					UserID:    "U123",
+					Text:      "found it",
+					ChannelID: "C1",
+				},
+			},
+		},
+		users:    []slack.User{{ID: "U123", RealName: "Alice Smith"}},
+		channels: []slack.Channel{},
+	}
+	req := newCallRequest(map[string]any{"query": "found"})
+	result, err := handleSlackSearch(context.Background(), req, successTC(), mockBuilder(mock))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	text := extractTextContent(t, result)
+	var results []map[string]any
+	if jsonErr := json.Unmarshal([]byte(text), &results); jsonErr != nil {
+		t.Fatalf("invalid JSON: %v\n%s", jsonErr, text)
+	}
+	if results[0]["userName"] != "Alice Smith" {
+		t.Errorf("expected userName 'Alice Smith', got %v", results[0]["userName"])
+	}
+}
+
+func TestHandleSlackHistory_FallsBackToRawIDOnListUsersError(t *testing.T) {
+	mock := &mockSlackClient{
+		historyMsgs: []slack.Message{
+			{Timestamp: "1700000000.000000", UserID: "U123", Text: "hello", ChannelID: "C1"},
+		},
+		usersErr: errors.New("api error"),
+	}
+	req := newCallRequest(map[string]any{"channel": "general"})
+	result, err := handleSlackHistory(context.Background(), req, successTC(), mockBuilder(mock))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	text := extractTextContent(t, result)
+	var msgs []map[string]any
+	if jsonErr := json.Unmarshal([]byte(text), &msgs); jsonErr != nil {
+		t.Fatalf("invalid JSON: %v\n%s", jsonErr, text)
+	}
+	if msgs[0]["userName"] != "U123" {
+		t.Errorf("expected raw userID as fallback, got %v", msgs[0]["userName"])
+	}
+}

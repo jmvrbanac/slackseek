@@ -103,6 +103,7 @@ type mcpMessageJSON struct {
 	Timestamp   string `json:"timestamp"`
 	Time        string `json:"time"`
 	UserID      string `json:"userID"`
+	UserName    string `json:"userName"`
 	Text        string `json:"text"`
 	ChannelID   string `json:"channelID"`
 	ChannelName string `json:"channelName,omitempty"`
@@ -114,6 +115,7 @@ type mcpSearchResultJSON struct {
 	Timestamp   string `json:"timestamp"`
 	Time        string `json:"time"`
 	UserID      string `json:"userID"`
+	UserName    string `json:"userName"`
 	Text        string `json:"text"`
 	ChannelID   string `json:"channelID"`
 	ChannelName string `json:"channelName,omitempty"`
@@ -121,25 +123,76 @@ type mcpSearchResultJSON struct {
 	Permalink   string `json:"permalink"`
 }
 
-func toMCPMessageJSON(m slack.Message) mcpMessageJSON {
+// buildMCPResolver constructs a *slack.Resolver for entity resolution in MCP output.
+// Returns nil on error — callers degrade gracefully to raw IDs.
+func buildMCPResolver(ctx context.Context, c slackClient) *slack.Resolver {
+	users, err := c.ListUsers(ctx)
+	if err != nil {
+		return nil
+	}
+	channels, err := c.ListChannels(ctx, nil, false)
+	if err != nil {
+		return nil
+	}
+	groups, _ := c.ListUserGroups(ctx)
+	fetchUser := func(id string) (string, error) {
+		u, fErr := c.FetchUser(ctx, id)
+		if fErr != nil {
+			return "", fErr
+		}
+		if u.RealName != "" {
+			return u.RealName, nil
+		}
+		return u.DisplayName, nil
+	}
+	fetchChannel := func(id string) (string, error) {
+		ch, fErr := c.FetchChannel(ctx, id)
+		if fErr != nil {
+			return "", fErr
+		}
+		return ch.Name, nil
+	}
+	fetchGroups := func() ([]slack.UserGroup, error) {
+		return c.ForceRefreshUserGroups(ctx)
+	}
+	return slack.NewResolverWithFetch(users, channels, groups, fetchUser, fetchChannel, fetchGroups)
+}
+
+func toMCPMessageJSON(m slack.Message, r *slack.Resolver) mcpMessageJSON {
+	userName := m.UserID
+	text := m.Text
+	channelName := m.ChannelName
+	if r != nil {
+		userName = r.UserDisplayName(m.UserID)
+		text = r.ResolveMentions(text)
+		channelName = r.ResolveChannelDisplay(m.ChannelID, m.ChannelName)
+	}
 	return mcpMessageJSON{
 		Timestamp:   m.Timestamp,
 		Time:        m.Time.UTC().Format(time.RFC3339),
 		UserID:      m.UserID,
-		Text:        m.Text,
+		UserName:    userName,
+		Text:        text,
 		ChannelID:   m.ChannelID,
-		ChannelName: m.ChannelName,
+		ChannelName: channelName,
 		ThreadTS:    m.ThreadTS,
 		ThreadDepth: m.ThreadDepth,
 	}
 }
 
-func toMCPSearchResultJSON(sr slack.SearchResult) mcpSearchResultJSON {
+func toMCPSearchResultJSON(sr slack.SearchResult, r *slack.Resolver) mcpSearchResultJSON {
+	userName := sr.UserID
+	text := sr.Text
+	if r != nil {
+		userName = r.UserDisplayName(sr.UserID)
+		text = r.ResolveMentions(text)
+	}
 	return mcpSearchResultJSON{
 		Timestamp:   sr.Timestamp,
 		Time:        sr.Time.UTC().Format(time.RFC3339),
 		UserID:      sr.UserID,
-		Text:        sr.Text,
+		UserName:    userName,
+		Text:        text,
 		ChannelID:   sr.ChannelID,
 		ChannelName: sr.ChannelName,
 		ThreadTS:    sr.ThreadTS,
@@ -280,9 +333,10 @@ func handleSlackSearch(ctx context.Context, req mcplib.CallToolRequest, tc *toke
 	if sErr != nil {
 		return mcplib.NewToolResultError(fmt.Sprintf("search %q failed: %s", query, sErr)), nil
 	}
+	r := buildMCPResolver(ctx, c)
 	out := make([]mcpSearchResultJSON, len(results))
-	for i, r := range results {
-		out[i] = toMCPSearchResultJSON(r)
+	for i, sr := range results {
+		out[i] = toMCPSearchResultJSON(sr, r)
 	}
 	return marshalResult("slack_search", out), nil
 }
@@ -311,9 +365,10 @@ func handleSlackHistory(ctx context.Context, req mcplib.CallToolRequest, tc *tok
 	if hErr != nil {
 		return mcplib.NewToolResultError(fmt.Sprintf("slack_history failed: %s", hErr)), nil
 	}
+	r := buildMCPResolver(ctx, c)
 	out := make([]mcpMessageJSON, len(msgs))
 	for i, m := range msgs {
-		out[i] = toMCPMessageJSON(m)
+		out[i] = toMCPMessageJSON(m, r)
 	}
 	return marshalResult("slack_history", out), nil
 }
@@ -341,9 +396,10 @@ func handleSlackMessages(ctx context.Context, req mcplib.CallToolRequest, tc *to
 	if mErr != nil {
 		return mcplib.NewToolResultError(fmt.Sprintf("slack_messages failed: %s", mErr)), nil
 	}
+	r := buildMCPResolver(ctx, c)
 	out := make([]mcpMessageJSON, len(msgs))
 	for i, m := range msgs {
-		out[i] = toMCPMessageJSON(m)
+		out[i] = toMCPMessageJSON(m, r)
 	}
 	return marshalResult("slack_messages", out), nil
 }
@@ -446,14 +502,14 @@ type mcpActionItemJSON struct {
 	Timestamp string `json:"timestamp"`
 }
 
-func toMCPChannelDigestJSON(g output.ChannelDigest) mcpChannelDigestJSON {
+func toMCPChannelDigestJSON(g output.ChannelDigest, r *slack.Resolver) mcpChannelDigestJSON {
 	channelID := ""
 	if len(g.Messages) > 0 {
 		channelID = g.Messages[0].ChannelID
 	}
 	msgs := make([]mcpMessageJSON, len(g.Messages))
 	for i, m := range g.Messages {
-		msgs[i] = toMCPMessageJSON(m)
+		msgs[i] = toMCPMessageJSON(m, r)
 	}
 	return mcpChannelDigestJSON{
 		ChannelID: channelID, ChannelName: g.ChannelName,
@@ -525,10 +581,11 @@ func handleSlackDigest(ctx context.Context, req mcplib.CallToolRequest, tc *toke
 	if mErr != nil {
 		return mcplib.NewToolResultError(fmt.Sprintf("slack_digest failed: %s", mErr)), nil
 	}
+	r := buildMCPResolver(ctx, c)
 	groups := output.GroupByChannel(msgs)
 	out := make([]mcpChannelDigestJSON, len(groups))
 	for i, g := range groups {
-		out[i] = toMCPChannelDigestJSON(g)
+		out[i] = toMCPChannelDigestJSON(g, r)
 	}
 	return marshalResult("slack_digest", out), nil
 }
@@ -556,7 +613,8 @@ func handleSlackPostmortem(ctx context.Context, req mcplib.CallToolRequest, tc *
 	if hErr != nil {
 		return mcplib.NewToolResultError(fmt.Sprintf("slack_postmortem failed: %s", hErr)), nil
 	}
-	return marshalResult("slack_postmortem", toMCPIncidentDocJSON(output.BuildIncidentDoc(msgs, nil))), nil
+	r := buildMCPResolver(ctx, c)
+	return marshalResult("slack_postmortem", toMCPIncidentDocJSON(output.BuildIncidentDoc(msgs, r))), nil
 }
 
 // handleSlackMetrics handles the slack_metrics MCP tool call.
@@ -582,7 +640,8 @@ func handleSlackMetrics(ctx context.Context, req mcplib.CallToolRequest, tc *tok
 	if hErr != nil {
 		return mcplib.NewToolResultError(fmt.Sprintf("slack_metrics failed: %s", hErr)), nil
 	}
-	return marshalResult("slack_metrics", toMCPChannelMetricsJSON(channel, output.ComputeMetrics(msgs, nil))), nil
+	r := buildMCPResolver(ctx, c)
+	return marshalResult("slack_metrics", toMCPChannelMetricsJSON(channel, output.ComputeMetrics(msgs, r))), nil
 }
 
 // handleSlackActions handles the slack_actions MCP tool call.
@@ -608,7 +667,8 @@ func handleSlackActions(ctx context.Context, req mcplib.CallToolRequest, tc *tok
 	if hErr != nil {
 		return mcplib.NewToolResultError(fmt.Sprintf("slack_actions failed: %s", hErr)), nil
 	}
-	items := output.ExtractActions(msgs, nil)
+	r := buildMCPResolver(ctx, c)
+	items := output.ExtractActions(msgs, r)
 	out := make([]mcpActionItemJSON, len(items))
 	for i, item := range items {
 		out[i] = mcpActionItemJSON{UserID: item.Who, Text: item.Text, Timestamp: item.Timestamp.UTC().Format(time.RFC3339)}
@@ -635,9 +695,10 @@ func handleSlackThread(ctx context.Context, req mcplib.CallToolRequest, tc *toke
 	if tErr != nil {
 		return mcplib.NewToolResultError(fmt.Sprintf("slack_thread failed: %s", tErr)), nil
 	}
+	r := buildMCPResolver(ctx, c)
 	out := make([]mcpMessageJSON, len(msgs))
 	for i, m := range msgs {
-		out[i] = toMCPMessageJSON(m)
+		out[i] = toMCPMessageJSON(m, r)
 	}
 	return marshalResult("slack_thread", out), nil
 }
