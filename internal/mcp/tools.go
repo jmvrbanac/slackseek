@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -37,6 +38,9 @@ type slackClient interface {
 // mcpCacheTTL is the cache TTL used when building a Slack client for MCP tool
 // calls. 24 hours matches the default CLI cache TTL.
 const mcpCacheTTL = 24 * time.Hour
+
+// mcpChannelIDPattern matches Slack channel/group/DM IDs (uppercase letter + alphanumerics).
+var mcpChannelIDPattern = regexp.MustCompile(`^[CDGW][A-Z0-9]{5,}$`)
 
 // parseDateRange resolves since/until strings into a slack.DateRange.
 // It delegates to ParseRelativeDateRange when either argument is non-empty
@@ -183,9 +187,9 @@ func parseStringSlice(req mcplib.CallToolRequest, key string) []string {
 	return out
 }
 
-// resolveOptionalUser resolves a display name or raw ID to a Slack user ID.
-// Returns ("", nil) when nameOrID is empty.
-func resolveOptionalUser(ctx context.Context, nameOrID string, c slackClient) (string, error) {
+// resolveOptionalUserName resolves a display name or Slack ID to the user's
+// display name for use in search from: modifiers. Returns ("", nil) when empty.
+func resolveOptionalUserName(ctx context.Context, nameOrID string, c slackClient) (string, error) {
 	if nameOrID == "" {
 		return "", nil
 	}
@@ -193,19 +197,36 @@ func resolveOptionalUser(ctx context.Context, nameOrID string, c slackClient) (s
 	if err != nil {
 		return "", fmt.Errorf("user %q not found — use slack_users to list available users", nameOrID)
 	}
-	return id, nil
+	u, err := c.FetchUser(ctx, id)
+	if err != nil {
+		return "", fmt.Errorf("user %q not found — use slack_users to list available users", nameOrID)
+	}
+	if u.DisplayName != "" {
+		return u.DisplayName, nil
+	}
+	return u.RealName, nil
 }
 
 // buildSearchQuery constructs a Slack full-text query with optional channel and
 // date-range filters. Multiple channels are appended as separate in: terms.
-func buildSearchQuery(query string, channels []string, userID string, dr slack.DateRange) string {
+// Channel IDs (C…/D…/G…/W…) are passed without '#'; names get in:#name.
+// in: terms already present in query are not duplicated.
+func buildSearchQuery(query string, channels []string, userName string, dr slack.DateRange) string {
 	parts := []string{query}
 	for _, ch := range channels {
 		ch = strings.TrimLeft(ch, "#@")
-		parts = append(parts, "in:#"+ch)
+		var inTerm string
+		if mcpChannelIDPattern.MatchString(ch) {
+			inTerm = "in:" + ch
+		} else {
+			inTerm = "in:#" + ch
+		}
+		if !strings.Contains(query, inTerm) {
+			parts = append(parts, inTerm)
+		}
 	}
-	if userID != "" {
-		parts = append(parts, "from:"+userID)
+	if userName != "" {
+		parts = append(parts, "from:"+userName)
 	}
 	if dr.From != nil {
 		parts = append(parts, "after:"+dr.From.Format("2006-01-02"))
@@ -250,11 +271,11 @@ func handleSlackSearch(ctx context.Context, req mcplib.CallToolRequest, tc *toke
 		return mcplib.NewToolResultError(drErr.Error()), nil
 	}
 	c := buildClient(ws)
-	userID, uErr := resolveOptionalUser(ctx, req.GetString("user", ""), c)
+	userName, uErr := resolveOptionalUserName(ctx, req.GetString("user", ""), c)
 	if uErr != nil {
 		return mcplib.NewToolResultError(uErr.Error()), nil
 	}
-	q := buildSearchQuery(query, parseStringSlice(req, "channels"), userID, dr)
+	q := buildSearchQuery(query, parseStringSlice(req, "channels"), userName, dr)
 	results, sErr := c.SearchMessages(ctx, q, req.GetInt("limit", 100))
 	if sErr != nil {
 		return mcplib.NewToolResultError(fmt.Sprintf("search %q failed: %s", query, sErr)), nil

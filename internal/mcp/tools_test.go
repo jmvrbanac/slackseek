@@ -26,6 +26,8 @@ type mockSlackClient struct {
 	resolveChannelErr error
 	resolveUserID     string
 	resolveUserErr    error
+	fetchUserResult slack.User
+	fetchUserErr    error
 	// US3 listing fields
 	channels                []slack.Channel
 	channelsErr             error
@@ -72,7 +74,7 @@ func (m *mockSlackClient) ResolveUser(_ context.Context, nameOrID string) (strin
 	return nameOrID, nil
 }
 func (m *mockSlackClient) FetchUser(_ context.Context, _ string) (slack.User, error) {
-	return slack.User{}, nil
+	return m.fetchUserResult, m.fetchUserErr
 }
 func (m *mockSlackClient) FetchChannel(_ context.Context, _ string) (slack.Channel, error) {
 	return slack.Channel{}, nil
@@ -191,6 +193,67 @@ func TestHandleSlackSearch_AuthError(t *testing.T) {
 	if !result.IsError {
 		t.Fatal("expected IsError=true for auth error")
 	}
+}
+
+// --- buildSearchQuery tests ---
+
+func TestBuildSearchQuery_ChannelIDNoHash(t *testing.T) {
+	q := buildSearchQuery("", []string{"C01234567"}, "", slack.DateRange{})
+	if !strings.Contains(q, "in:C01234567") {
+		t.Errorf("expected in:C01234567 (no hash), got: %q", q)
+	}
+	if strings.Contains(q, "in:#C01234567") {
+		t.Errorf("unexpected hash prefix for channel ID in: %q", q)
+	}
+}
+
+func TestBuildSearchQuery_ChannelNameHash(t *testing.T) {
+	q := buildSearchQuery("", []string{"general"}, "", slack.DateRange{})
+	if !strings.Contains(q, "in:#general") {
+		t.Errorf("expected in:#general, got: %q", q)
+	}
+}
+
+func TestBuildSearchQuery_DeduplicatesInModifier(t *testing.T) {
+	q := buildSearchQuery("in:#general", []string{"general"}, "", slack.DateRange{})
+	count := strings.Count(q, "in:#general")
+	if count != 1 {
+		t.Errorf("expected exactly one in:#general, got %d in: %q", count, q)
+	}
+}
+
+func TestHandleSlackSearch_UserResolvedToDisplayName(t *testing.T) {
+	capturedQuery := ""
+	mock := &mockSlackClient{
+		resolveUserID:   "U123",
+		fetchUserResult: slack.User{DisplayName: "alice"},
+		searchResults:   []slack.SearchResult{},
+	}
+	// Override SearchMessages to capture the query
+	mock2 := &captureQueryMock{mockSlackClient: mock}
+	req := newCallRequest(map[string]any{"query": "", "user": "alice"})
+	_, err := handleSlackSearch(context.Background(), req, successTC(), mockBuilder(mock2))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	capturedQuery = mock2.lastQuery
+	if !strings.Contains(capturedQuery, "from:alice") {
+		t.Errorf("expected from:alice in query, got: %q", capturedQuery)
+	}
+	if strings.Contains(capturedQuery, "from:U123") {
+		t.Errorf("expected display name not user ID in query, got: %q", capturedQuery)
+	}
+}
+
+// captureQueryMock wraps mockSlackClient and records the query passed to SearchMessages.
+type captureQueryMock struct {
+	*mockSlackClient
+	lastQuery string
+}
+
+func (c *captureQueryMock) SearchMessages(ctx context.Context, query string, limit int) ([]slack.SearchResult, error) {
+	c.lastQuery = query
+	return c.mockSlackClient.SearchMessages(ctx, query, limit)
 }
 
 // --- handleSlackHistory tests ---

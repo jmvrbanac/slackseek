@@ -13,9 +13,9 @@ All successful results return a single `TextContent` item whose `text` is a JSON
 **Parameters**:
 ```json
 {
-  "query":     { "type": "string", "required": true,  "description": "Search query" },
-  "channels":  { "type": "array",  "items": "string", "description": "Limit to channels (names or IDs)" },
-  "user":      { "type": "string", "description": "Limit to user (display name or ID)" },
+  "query":     { "type": "string", "required": true,  "description": "Search query. Do not embed in:channel or from:user modifiers here; use the channels and user parameters instead to avoid duplicate filter conflicts." },
+  "channels":  { "type": "array",  "items": "string", "description": "Limit to channels (names or IDs) — channel IDs (C…/D…/G…/W…) are passed without # prefix; names get in:#name" },
+  "user":      { "type": "string", "description": "Limit to user (display name or ID) — resolved to the user's display name for the search from: modifier" },
   "since":     { "type": "string", "description": "Start: ISO date, RFC 3339, or duration (7d)" },
   "until":     { "type": "string", "description": "End: ISO date, RFC 3339, or duration" },
   "limit":     { "type": "number", "default": 100, "description": "Max results (0 = unlimited)" },
@@ -41,6 +41,7 @@ All successful results return a single `TextContent` item whose `text` is a JSON
 
 **Error cases**:
 - `"search <query> failed: <upstream error>"` — Slack API error
+- `"user <name> not found — use slack_users to list available users"` — user lookup or fetch failed
 - Auth failure (see common errors below)
 
 ---

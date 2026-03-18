@@ -228,3 +228,14 @@ After Phase 2 (Foundational) completes and Phase 3 (US1) completes:
 - Handlers must NOT write to stderr (would corrupt the JSON-RPC stdio stream)
 - All functions must remain ≤ 40 lines (Constitution Principle I) — split helpers if needed
 - For analysis tools (T022–T025): check if `output.Build*` / `output.Extract*` functions are exported before reproducing logic; prefer reuse
+
+
+---
+
+## Bug Fix: slack_search Empty Results (2026-03-18)
+
+- [x] BF01 Fix `resolveOptionalUser` → `resolveOptionalUserName`: use `FetchUser` to get display name after `ResolveUser`; update call site in `handleSlackSearch`
+- [x] BF02 Fix `buildSearchQuery`: add `mcpChannelIDPattern` to detect channel IDs; skip `#` prefix for IDs
+- [x] BF03 Fix `buildSearchQuery`: deduplicate `in:` terms already present in base `query`
+- [x] BF04 Update `contracts/mcp-tools.md`: clarify `query`, `user`, `channels` parameter semantics
+- [x] BF05 Extend `mockSlackClient.FetchUser` with configurable return values; add tests for all three fixes
