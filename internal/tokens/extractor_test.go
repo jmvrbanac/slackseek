@@ -1,7 +1,9 @@
 package tokens
 
 import (
+	"io"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -30,12 +32,18 @@ func buildTestLevelDB(t *testing.T, name, url, token string) string {
 	return dir
 }
 
-// buildTestCookieDB writes a synthetic Cookies SQLite file and returns its path.
-func buildTestCookieDB(t *testing.T, dir, cookiePlaintext, password string) string {
+// buildTestCookieDB writes a synthetic Cookies SQLite file with a host_key
+// derived from workspaceURL (e.g. "https://test.slack.com" → ".test.slack.com").
+func buildTestCookieDB(t *testing.T, dir, workspaceURL, cookiePlaintext, password string) string {
 	t.Helper()
 	dbPath := filepath.Join(dir, "Cookies")
 	encrypted := encryptCookie(cookiePlaintext, []byte(password), 1)
-	createSyntheticCookieDB(t, dbPath, encrypted, 20)
+	host := parseWorkspaceHost(workspaceURL)
+	hostKey := "." + host
+	if host == "" {
+		hostKey = ".slack.com"
+	}
+	createSyntheticCookieDB(t, dbPath, hostKey, encrypted, 20)
 	return dbPath
 }
 
@@ -50,12 +58,12 @@ func TestExtract_SingleWorkspaceHappyPath(t *testing.T) {
 
 	ldbDir := buildTestLevelDB(t, wsName, wsURL, wsToken)
 	cookieDir := t.TempDir()
-	cookiePath := buildTestCookieDB(t, cookieDir, cookie, pw)
+	cookiePath := buildTestCookieDB(t, cookieDir, wsURL, cookie, pw)
 
 	kr := &mockKR{password: []byte(pw)}
 	pp := &mockPathProvider{leveldbPath: ldbDir, cookiePath: cookiePath}
 
-	result, err := Extract(kr, pp)
+	result, err := Extract(kr, pp, io.Discard)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -88,7 +96,7 @@ func TestExtract_MissingCookieIsNonFatal(t *testing.T) {
 	}
 	kr := &mockKR{password: []byte("pw")}
 
-	result, err := Extract(kr, pp)
+	result, err := Extract(kr, pp, io.Discard)
 	if err != nil {
 		t.Fatalf("cookie failure should be non-fatal, got error: %v", err)
 	}
@@ -103,7 +111,7 @@ func TestExtract_MissingCookieIsNonFatal(t *testing.T) {
 func TestExtract_KeyringFailureIsNonFatal(t *testing.T) {
 	ldbDir := buildTestLevelDB(t, "Corp", "https://corp.slack.com", "xoxs-tok")
 	cookieDir := t.TempDir()
-	cookiePath := buildTestCookieDB(t, cookieDir, "cookie", "pw")
+	cookiePath := buildTestCookieDB(t, cookieDir, "https://corp.slack.com", "cookie", "pw")
 
 	kr := &mockKR{password: []byte("wrong-password")}
 	pp := &mockPathProvider{leveldbPath: ldbDir, cookiePath: cookiePath}
@@ -111,7 +119,7 @@ func TestExtract_KeyringFailureIsNonFatal(t *testing.T) {
 	// Providing wrong password → decryption will produce garbage text but no
 	// error (AES doesn't authenticate). The result depends on implementation
 	// details; what matters is that Extract itself doesn't fail.
-	result, err := Extract(kr, pp)
+	result, err := Extract(kr, pp, io.Discard)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -129,8 +137,71 @@ func TestExtract_ZeroWorkspacesReturnsError(t *testing.T) {
 	}
 	kr := &mockKR{password: []byte("pw")}
 
-	_, err := Extract(kr, pp)
+	_, err := Extract(kr, pp, io.Discard)
 	if err == nil {
 		t.Fatal("expected error when no workspaces found")
+	}
+}
+
+func TestExtract_MultiWorkspacePerWorkspaceCookie(t *testing.T) {
+	const (
+		acmeName   = "Acme Corp"
+		acmeURL    = "https://acme.slack.com"
+		acmeToken  = "xoxs-acme"
+		acmeCookie = "acme-session"
+		betaName   = "Beta Inc"
+		betaURL    = "https://beta.slack.com"
+		betaToken  = "xoxs-beta"
+		betaCookie = "beta-session"
+		pw         = "keyring-pw"
+	)
+
+	ldbDir := t.TempDir()
+	cfg := localConfigV2{}
+	cfg.Teams = map[string]struct {
+		Name  string `json:"name"`
+		URL   string `json:"url"`
+		Token string `json:"token"`
+	}{
+		"T00000001": {Name: acmeName, URL: acmeURL, Token: acmeToken},
+		"T00000002": {Name: betaName, URL: betaURL, Token: betaToken},
+	}
+	writeSyntheticLevelDB(t, ldbDir, cfg)
+
+	cookieDir := t.TempDir()
+	dbPath := filepath.Join(cookieDir, "Cookies")
+	createSyntheticCookieDB(t, dbPath, ".acme.slack.com",
+		encryptCookie(acmeCookie, []byte(pw), 1), 20)
+	addCookieRow(t, dbPath, ".beta.slack.com",
+		encryptCookie(betaCookie, []byte(pw), 1))
+
+	kr := &mockKR{password: []byte(pw)}
+	pp := &mockPathProvider{leveldbPath: ldbDir, cookiePath: dbPath}
+
+	result, err := Extract(kr, pp, io.Discard)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Workspaces) != 2 {
+		t.Fatalf("expected 2 workspaces, got %d", len(result.Workspaces))
+	}
+	if len(result.Warnings) != 0 {
+		t.Errorf("expected no warnings, got: %v", result.Warnings)
+	}
+
+	byName := make(map[string]Workspace)
+	for _, ws := range result.Workspaces {
+		byName[ws.Name] = ws
+	}
+
+	if byName[acmeName].Cookie != acmeCookie {
+		t.Errorf("acme cookie: got %q, want %q", byName[acmeName].Cookie, acmeCookie)
+	}
+	if byName[betaName].Cookie != betaCookie {
+		t.Errorf("beta cookie: got %q, want %q", byName[betaName].Cookie, betaCookie)
+	}
+	// Verify isolation: acme should not get beta's cookie
+	if strings.Contains(byName[acmeName].Cookie, betaCookie) {
+		t.Error("acme workspace received beta's cookie")
 	}
 }

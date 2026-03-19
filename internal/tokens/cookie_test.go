@@ -39,8 +39,9 @@ func encryptCookie(plaintext string, password []byte, iterations int) []byte {
 }
 
 // createSyntheticCookieDB writes a minimal Chromium-style cookies SQLite
-// database at dbPath with one encrypted 'd' cookie for slack.com.
-func createSyntheticCookieDB(t *testing.T, dbPath string, encryptedValue []byte, version int) {
+// database at dbPath with one encrypted 'd' cookie for the given hostKey
+// (e.g. ".acme.slack.com").
+func createSyntheticCookieDB(t *testing.T, dbPath, hostKey string, encryptedValue []byte, version int) {
 	t.Helper()
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
@@ -64,9 +65,23 @@ func createSyntheticCookieDB(t *testing.T, dbPath string, encryptedValue []byte,
 		t.Fatalf("create cookies table: %v", err)
 	}
 	_, err = db.Exec(`INSERT INTO cookies VALUES (?, ?, ?)`,
-		".slack.com", "d", encryptedValue)
+		hostKey, "d", encryptedValue)
 	if err != nil {
 		t.Fatalf("insert cookie: %v", err)
+	}
+}
+
+// addCookieRow inserts an additional 'd' cookie row into an existing DB.
+func addCookieRow(t *testing.T, dbPath, hostKey string, encryptedValue []byte) {
+	t.Helper()
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open cookie DB for addCookieRow: %v", err)
+	}
+	defer db.Close()
+	_, err = db.Exec(`INSERT INTO cookies VALUES (?, ?, ?)`, hostKey, "d", encryptedValue)
+	if err != nil {
+		t.Fatalf("addCookieRow: %v", err)
 	}
 }
 
@@ -106,14 +121,14 @@ func TestDecryptCookie_FallbackKeyringAccount(t *testing.T) {
 
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "Cookies")
-	createSyntheticCookieDB(t, dbPath, encrypted, 20)
+	createSyntheticCookieDB(t, dbPath, ".slack.com", encrypted, 20)
 
 	kr := &mockFallbackKR{
 		primaryAccount:  slackKeyringAccount,
 		fallbackAccount: slackKeyringAccountFallback,
 		password:        []byte(password),
 	}
-	result, err := DecryptCookie(dbPath, kr, iterations)
+	result, err := DecryptCookie(dbPath, kr, iterations, "", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -128,7 +143,7 @@ func TestDecryptCookie_BothAccountsFail(t *testing.T) {
 	encrypted := encryptCookie("value", []byte("pw"), iterations)
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "Cookies")
-	createSyntheticCookieDB(t, dbPath, encrypted, 20)
+	createSyntheticCookieDB(t, dbPath, ".slack.com", encrypted, 20)
 
 	// fallbackAccount set to "no-match" so both lookups fail
 	kr := &mockFallbackKR{
@@ -136,7 +151,7 @@ func TestDecryptCookie_BothAccountsFail(t *testing.T) {
 		fallbackAccount: "no-match",
 		password:        []byte("pw"),
 	}
-	_, err := DecryptCookie(dbPath, kr, iterations)
+	_, err := DecryptCookie(dbPath, kr, iterations, "", nil)
 	if err == nil {
 		t.Fatal("expected error when both accounts fail")
 	}
@@ -164,10 +179,10 @@ func TestDecryptCookie_HappyPath(t *testing.T) {
 
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "Cookies")
-	createSyntheticCookieDB(t, dbPath, encrypted, 20)
+	createSyntheticCookieDB(t, dbPath, ".acme.slack.com", encrypted, 20)
 
 	kr := &mockKR{password: []byte(password)}
-	result, err := DecryptCookie(dbPath, kr, iterations)
+	result, err := DecryptCookie(dbPath, kr, iterations, "acme.slack.com", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -179,7 +194,7 @@ func TestDecryptCookie_HappyPath(t *testing.T) {
 func TestDecryptCookie_MissingCookieFile(t *testing.T) {
 	dir := t.TempDir()
 	kr := &mockKR{password: []byte("pw")}
-	_, err := DecryptCookie(filepath.Join(dir, "NoCookies"), kr, 1)
+	_, err := DecryptCookie(filepath.Join(dir, "NoCookies"), kr, 1, "", nil)
 	if err == nil {
 		t.Fatal("expected error for missing cookie file")
 	}
@@ -199,7 +214,7 @@ func TestDecryptCookie_NoCookieForSlack(t *testing.T) {
 	db.Close()
 
 	kr := &mockKR{password: []byte("pw")}
-	_, err = DecryptCookie(dbPath, kr, 1)
+	_, err = DecryptCookie(dbPath, kr, 1, "", nil)
 	if err == nil {
 		t.Fatal("expected error when no slack cookie present")
 	}
@@ -214,7 +229,7 @@ func TestDecryptCookie_WritesToTempAndCleansUp(t *testing.T) {
 	encrypted := encryptCookie(plaintext, []byte(password), iterations)
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "Cookies")
-	createSyntheticCookieDB(t, dbPath, encrypted, 20)
+	createSyntheticCookieDB(t, dbPath, ".slack.com", encrypted, 20)
 
 	originalStat, err := os.Stat(dbPath)
 	if err != nil {
@@ -222,7 +237,7 @@ func TestDecryptCookie_WritesToTempAndCleansUp(t *testing.T) {
 	}
 
 	kr := &mockKR{password: []byte(password)}
-	_, err = DecryptCookie(dbPath, kr, iterations)
+	_, err = DecryptCookie(dbPath, kr, iterations, "", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -233,5 +248,59 @@ func TestDecryptCookie_WritesToTempAndCleansUp(t *testing.T) {
 	}
 	if originalStat.ModTime() != afterStat.ModTime() {
 		t.Error("original cookie file was modified — should use a temp copy")
+	}
+}
+
+func TestDecryptCookie_PerWorkspaceIsolation(t *testing.T) {
+	const pw = "keyring-pw"
+	const iterations = 1
+	acmeCookie := "acme-session-cookie"
+	betaCookie := "beta-session-cookie"
+
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "Cookies")
+	createSyntheticCookieDB(t, dbPath, ".acme.slack.com", encryptCookie(acmeCookie, []byte(pw), iterations), 20)
+	addCookieRow(t, dbPath, ".beta.slack.com", encryptCookie(betaCookie, []byte(pw), iterations))
+
+	kr := &mockKR{password: []byte(pw)}
+
+	got, err := DecryptCookie(dbPath, kr, iterations, "acme.slack.com", nil)
+	if err != nil {
+		t.Fatalf("acme lookup: unexpected error: %v", err)
+	}
+	if got != acmeCookie {
+		t.Errorf("acme: got %q, want %q", got, acmeCookie)
+	}
+
+	got, err = DecryptCookie(dbPath, kr, iterations, "beta.slack.com", nil)
+	if err != nil {
+		t.Fatalf("beta lookup: unexpected error: %v", err)
+	}
+	if got != betaCookie {
+		t.Errorf("beta: got %q, want %q", got, betaCookie)
+	}
+}
+
+func TestDecryptCookie_DiagOutputOnSuccess(t *testing.T) {
+	const plaintext = "diag-test"
+	const password = "pw"
+	const iterations = 1
+
+	encrypted := encryptCookie(plaintext, []byte(password), iterations)
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "Cookies")
+	createSyntheticCookieDB(t, dbPath, ".slack.com", encrypted, 20)
+
+	kr := &mockKR{password: []byte(password)}
+	var buf bytes.Buffer
+	_, err := DecryptCookie(dbPath, kr, iterations, "", &buf)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{"[cookie] DB version:", "[keyring] lookup: ok", "[decrypt] ok"} {
+		if !containsStr(out, want) {
+			t.Errorf("diag output missing %q:\n%s", want, out)
+		}
 	}
 }
