@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"bytes"
 	"fmt"
-	"os"
+	"io"
 	"regexp"
+	"runtime"
 	"strings"
 
 	"github.com/jmvrbanac/slackseek/internal/output"
@@ -11,25 +13,41 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// addAuthCmd attaches the auth command tree to parent using extractFn for
-// credential extraction.  This signature enables test injection.
-func addAuthCmd(parent *cobra.Command, extractFn func() (tokens.TokenExtractionResult, error)) {
+// addAuthCmd attaches the auth command tree to parent.
+// extractFn is used for normal extraction; diagFn for verbose/diagnose modes.
+func addAuthCmd(
+	parent *cobra.Command,
+	extractFn func() (tokens.TokenExtractionResult, error),
+	diagFn func(io.Writer) (tokens.TokenExtractionResult, error),
+) {
 	auth := &cobra.Command{
 		Use:   "auth",
 		Short: "Manage and verify local Slack workspace credentials",
 	}
 
-	auth.AddCommand(newAuthShowCmd(extractFn))
+	auth.AddCommand(newAuthShowCmd(extractFn, diagFn))
 	auth.AddCommand(newAuthExportCmd(extractFn))
+	auth.AddCommand(newAuthDiagnoseCmd(diagFn))
+	auth.AddCommand(newAuthDebugCookieCmd())
 	parent.AddCommand(auth)
 }
 
-func newAuthShowCmd(extractFn func() (tokens.TokenExtractionResult, error)) *cobra.Command {
-	return &cobra.Command{
+func newAuthShowCmd(
+	extractFn func() (tokens.TokenExtractionResult, error),
+	diagFn func(io.Writer) (tokens.TokenExtractionResult, error),
+) *cobra.Command {
+	var verbose bool
+	cmd := &cobra.Command{
 		Use:   "show",
 		Short: "Display discovered workspace credentials",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			result, err := extractFn()
+			var result tokens.TokenExtractionResult
+			var err error
+			if verbose {
+				result, err = diagFn(cmd.ErrOrStderr())
+			} else {
+				result, err = extractFn()
+			}
 			if err != nil {
 				return fmt.Errorf(
 					"failed to extract Slack credentials: %w\n"+
@@ -39,12 +57,14 @@ func newAuthShowCmd(extractFn func() (tokens.TokenExtractionResult, error)) *cob
 				)
 			}
 			for _, w := range result.Warnings {
-				fmt.Fprintln(os.Stderr, "Warning:", w)
+				fmt.Fprintln(cmd.ErrOrStderr(), "Warning:", w)
 			}
 			format := output.Format(flagFormat)
 			return output.PrintWorkspaces(cmd.OutOrStdout(), format, result.Workspaces)
 		},
 	}
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Print per-step diagnostic output to stderr")
+	return cmd
 }
 
 func newAuthExportCmd(extractFn func() (tokens.TokenExtractionResult, error)) *cobra.Command {
@@ -70,6 +90,54 @@ func newAuthExportCmd(extractFn func() (tokens.TokenExtractionResult, error)) *c
 	}
 }
 
+func newAuthDiagnoseCmd(diagFn func(io.Writer) (tokens.TokenExtractionResult, error)) *cobra.Command {
+	return &cobra.Command{
+		Use:   "diagnose",
+		Short: "Print a diagnostic report for credential extraction",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runDiagnose(cmd.OutOrStdout(), diagFn)
+		},
+	}
+}
+
+func runDiagnose(out io.Writer, diagFn func(io.Writer) (tokens.TokenExtractionResult, error)) error {
+	var diagBuf bytes.Buffer
+	result, extractErr := diagFn(&diagBuf)
+
+	paths := tokens.DefaultPaths()
+	fmt.Fprintf(out, "Platform:     %s\n", runtime.GOOS)
+	fmt.Fprintf(out, "LevelDB path: %s\n", paths.LevelDBPath())
+	fmt.Fprintf(out, "Cookie path:  %s\n", paths.CookiePath())
+	fmt.Fprintln(out)
+
+	if extractErr != nil {
+		fmt.Fprintf(out, "Workspaces: 0\n")
+		fmt.Fprintf(out, "Error: %v\n", extractErr)
+		if diagBuf.Len() > 0 {
+			fmt.Fprintf(out, "\nDiagnostic trace:\n%s", diagBuf.String())
+		}
+		return extractErr
+	}
+
+	fmt.Fprintf(out, "Workspaces: %d\n", len(result.Workspaces))
+	for _, ws := range result.Workspaces {
+		fmt.Fprintf(out, "\n  %s\n", ws.Name)
+		fmt.Fprintf(out, "    URL:    %s\n", ws.URL)
+		fmt.Fprintf(out, "    Token:  %v\n", ws.Token != "")
+		fmt.Fprintf(out, "    Cookie: %v\n", ws.Cookie != "")
+	}
+	if len(result.Warnings) > 0 {
+		fmt.Fprintf(out, "\nWarnings:\n")
+		for _, w := range result.Warnings {
+			fmt.Fprintf(out, "  %s\n", w)
+		}
+	}
+	if diagBuf.Len() > 0 {
+		fmt.Fprintf(out, "\nDiagnostic trace:\n%s", diagBuf.String())
+	}
+	return nil
+}
+
 // toEnvName converts a workspace name to a valid uppercase environment variable
 // suffix, e.g. "Acme Corp" → "ACME_CORP".
 var nonAlphanumRE = regexp.MustCompile(`[^A-Z0-9]+`)
@@ -80,5 +148,5 @@ func toEnvName(name string) string {
 }
 
 func init() {
-	addAuthCmd(rootCmd, tokens.DefaultExtract)
+	addAuthCmd(rootCmd, tokens.DefaultExtract, tokens.DefaultExtractDiag)
 }

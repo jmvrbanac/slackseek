@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"strings"
 	"testing"
 
@@ -20,7 +22,8 @@ func runAuthCmd(t *testing.T, fn func() (tokens.TokenExtractionResult, error), a
 	root := NewRootCmd()
 	root.SetOut(outBuf)
 	root.SetErr(errBuf)
-	addAuthCmd(root, fn)
+	diagFn := func(_ io.Writer) (tokens.TokenExtractionResult, error) { return fn() }
+	addAuthCmd(root, fn, diagFn)
 	root.SetArgs(args)
 	err = root.Execute()
 	return outBuf.String(), errBuf.String(), err
@@ -127,5 +130,96 @@ func TestAuthShow_ExtractionFailure(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "no Slack installation found") {
 		t.Errorf("expected actionable error in stderr, got: %q", stderr)
+	}
+}
+
+func TestAuthShow_VerboseFlagEmitsDiagnostics(t *testing.T) {
+	outBuf := &bytes.Buffer{}
+	errBuf := &bytes.Buffer{}
+	root := NewRootCmd()
+	root.SetOut(outBuf)
+	root.SetErr(errBuf)
+
+	diagFn := func(w io.Writer) (tokens.TokenExtractionResult, error) {
+		fmt.Fprintln(w, "[test] diagnostic line")
+		return oneWorkspace(), nil
+	}
+	addAuthCmd(root, func() (tokens.TokenExtractionResult, error) { return oneWorkspace(), nil }, diagFn)
+	root.SetArgs([]string{"auth", "show", "--verbose"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(errBuf.String(), "[test] diagnostic line") {
+		t.Errorf("expected diagnostic output in stderr, got: %q", errBuf.String())
+	}
+	if !strings.Contains(outBuf.String(), "Acme Corp") {
+		t.Errorf("expected workspace in stdout, got: %q", outBuf.String())
+	}
+}
+
+func TestAuthDiagnose_Success(t *testing.T) {
+	outBuf := &bytes.Buffer{}
+	errBuf := &bytes.Buffer{}
+	root := NewRootCmd()
+	root.SetOut(outBuf)
+	root.SetErr(errBuf)
+
+	diagFn := func(_ io.Writer) (tokens.TokenExtractionResult, error) { return oneWorkspace(), nil }
+	addAuthCmd(root, func() (tokens.TokenExtractionResult, error) { return oneWorkspace(), nil }, diagFn)
+	root.SetArgs([]string{"auth", "diagnose"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := outBuf.String()
+	for _, want := range []string{"Platform:", "Workspaces: 1", "Acme Corp", "Token:  true", "Cookie: true"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %q in diagnose output:\n%s", want, out)
+		}
+	}
+}
+
+func TestAuthDiagnose_PartialCookieFailure(t *testing.T) {
+	partialResult := tokens.TokenExtractionResult{
+		Workspaces: []tokens.Workspace{
+			{Name: "Acme", URL: "https://acme.slack.com", Token: "xoxs-tok", Cookie: ""},
+		},
+		Warnings: []string{"Acme (acme.slack.com): no 'd' cookie found"},
+	}
+	outBuf := &bytes.Buffer{}
+	root := NewRootCmd()
+	root.SetOut(outBuf)
+	root.SetErr(&bytes.Buffer{})
+
+	diagFn := func(_ io.Writer) (tokens.TokenExtractionResult, error) { return partialResult, nil }
+	addAuthCmd(root, func() (tokens.TokenExtractionResult, error) { return partialResult, nil }, diagFn)
+	root.SetArgs([]string{"auth", "diagnose"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := outBuf.String()
+	if !strings.Contains(out, "Cookie: false") {
+		t.Errorf("expected 'Cookie: false' in output:\n%s", out)
+	}
+	if !strings.Contains(out, "no 'd' cookie found") {
+		t.Errorf("expected warning in output:\n%s", out)
+	}
+}
+
+func TestAuthDiagnose_ZeroWorkspaces(t *testing.T) {
+	root := NewRootCmd()
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&bytes.Buffer{})
+
+	diagFn := func(_ io.Writer) (tokens.TokenExtractionResult, error) {
+		return tokens.TokenExtractionResult{}, errors.New("no Slack installation found")
+	}
+	addAuthCmd(root, func() (tokens.TokenExtractionResult, error) {
+		return tokens.TokenExtractionResult{}, errors.New("no Slack installation found")
+	}, diagFn)
+	root.SetArgs([]string{"auth", "diagnose"})
+	if err := root.Execute(); err == nil {
+		t.Fatal("expected non-zero exit when zero workspaces found")
 	}
 }
