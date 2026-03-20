@@ -5,6 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-03-20
+
+### Fixed
+- Per-workspace cookie isolation, AES fallback key derivation strategies, and
+  a new hidden `auth debug-cookie` diagnostic command for troubleshooting
+  credential extraction.
+
+### Changed
+- Internal refactor to resolve all `golangci-lint` violations (cyclomatic
+  complexity and function length).
+
 ## [0.3.2] - 2026-03-19
 
 ### Added
