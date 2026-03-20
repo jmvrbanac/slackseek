@@ -143,38 +143,34 @@ func TestExtract_ZeroWorkspacesReturnsError(t *testing.T) {
 	}
 }
 
-func TestExtract_MultiWorkspacePerWorkspaceCookie(t *testing.T) {
-	const (
-		acmeName   = "Acme Corp"
-		acmeURL    = "https://acme.slack.com"
-		acmeToken  = "xoxs-acme"
-		acmeCookie = "acme-session"
-		betaName   = "Beta Inc"
-		betaURL    = "https://beta.slack.com"
-		betaToken  = "xoxs-beta"
-		betaCookie = "beta-session"
-		pw         = "keyring-pw"
-	)
-
-	ldbDir := t.TempDir()
+// buildTwoWorkspaceFixture creates a LevelDB with two workspaces (Acme and Beta)
+// and a cookie DB with per-workspace encrypted cookies. Returns ldbDir, dbPath, and pw.
+func buildTwoWorkspaceFixture(t *testing.T) (ldbDir, dbPath, pw string) {
+	t.Helper()
+	pw = "keyring-pw"
+	ldbDir = t.TempDir()
 	cfg := localConfigV2{}
 	cfg.Teams = map[string]struct {
 		Name  string `json:"name"`
 		URL   string `json:"url"`
 		Token string `json:"token"`
 	}{
-		"T00000001": {Name: acmeName, URL: acmeURL, Token: acmeToken},
-		"T00000002": {Name: betaName, URL: betaURL, Token: betaToken},
+		"T00000001": {Name: "Acme Corp", URL: "https://acme.slack.com", Token: "xoxs-acme"},
+		"T00000002": {Name: "Beta Inc", URL: "https://beta.slack.com", Token: "xoxs-beta"},
 	}
 	writeSyntheticLevelDB(t, ldbDir, cfg)
 
 	cookieDir := t.TempDir()
-	dbPath := filepath.Join(cookieDir, "Cookies")
+	dbPath = filepath.Join(cookieDir, "Cookies")
 	createSyntheticCookieDB(t, dbPath, ".acme.slack.com",
-		encryptCookie(acmeCookie, []byte(pw), 1), 20)
+		encryptCookie("acme-session", []byte(pw), 1), 20)
 	addCookieRow(t, dbPath, ".beta.slack.com",
-		encryptCookie(betaCookie, []byte(pw), 1))
+		encryptCookie("beta-session", []byte(pw), 1))
+	return
+}
 
+func TestExtract_MultiWorkspacePerWorkspaceCookie(t *testing.T) {
+	ldbDir, dbPath, pw := buildTwoWorkspaceFixture(t)
 	kr := &mockKR{password: []byte(pw)}
 	pp := &mockPathProvider{leveldbPath: ldbDir, cookiePath: dbPath}
 
@@ -194,14 +190,13 @@ func TestExtract_MultiWorkspacePerWorkspaceCookie(t *testing.T) {
 		byName[ws.Name] = ws
 	}
 
-	if byName[acmeName].Cookie != acmeCookie {
-		t.Errorf("acme cookie: got %q, want %q", byName[acmeName].Cookie, acmeCookie)
+	if byName["Acme Corp"].Cookie != "acme-session" {
+		t.Errorf("acme cookie: got %q, want %q", byName["Acme Corp"].Cookie, "acme-session")
 	}
-	if byName[betaName].Cookie != betaCookie {
-		t.Errorf("beta cookie: got %q, want %q", byName[betaName].Cookie, betaCookie)
+	if byName["Beta Inc"].Cookie != "beta-session" {
+		t.Errorf("beta cookie: got %q, want %q", byName["Beta Inc"].Cookie, "beta-session")
 	}
-	// Verify isolation: acme should not get beta's cookie
-	if strings.Contains(byName[acmeName].Cookie, betaCookie) {
+	if strings.Contains(byName["Acme Corp"].Cookie, "beta-session") {
 		t.Error("acme workspace received beta's cookie")
 	}
 }

@@ -16,7 +16,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/pbkdf2"
 
-	_ "modernc.org/sqlite"
+	_ "modernc.org/sqlite" // registers the sqlite3 driver
 )
 
 func newAuthDebugCookieCmd() *cobra.Command {
@@ -35,33 +35,15 @@ func newAuthDebugCookieCmd() *cobra.Command {
 // diagnosing AES key mismatch issues.
 func runDebugCookie(out io.Writer) error {
 	pp := tokens.DefaultPaths()
-	cookiePath := pp.CookiePath()
-
 	fmt.Fprintf(out, "=== Cookie DB ===\n")
-	fmt.Fprintf(out, "Path: %s\n\n", cookiePath)
-
-	db, dbErr := sql.Open("sqlite", cookiePath)
-	if dbErr != nil {
-		fmt.Fprintf(out, "ERROR opening cookie DB: %v\n\n", dbErr)
-	} else {
+	fmt.Fprintf(out, "Path: %s\n\n", pp.CookiePath())
+	db, dbErr := openAndListCookieDB(out, pp.CookiePath())
+	if db != nil {
 		defer db.Close()
-		listCookieRows(out, db)
 	}
 
 	fmt.Fprintf(out, "=== Keyring Items (D-Bus) ===\n")
-	allItems, dbusErr := listAllKeyringItems()
-	if dbusErr != nil {
-		fmt.Fprintf(out, "ERROR listing keyring items: %v\n\n", dbusErr)
-	} else {
-		for i, item := range allItems {
-			fmt.Fprintf(out, "Item %d: %s\n", i, item.path)
-			for k, v := range item.attrs {
-				fmt.Fprintf(out, "  attr %-35s = %q\n", k, v)
-			}
-			fmt.Fprintf(out, "  secret len=%d  hex=%s\n", len(item.secret), hex.EncodeToString(item.secret))
-			fmt.Fprintf(out, "  secret ASCII=%q\n\n", string(item.secret))
-		}
-	}
+	allItems := listAndPrintKeyringItems(out)
 
 	fmt.Fprintf(out, "=== Keyring (via ReadPassword) ===\n")
 	kr := tokens.NewDefaultKeyringReader()
@@ -83,6 +65,52 @@ func runDebugCookie(out io.Writer) error {
 		return nil
 	}
 
+	tryAllDecryptions(out, rawPw, encBlob, allItems)
+	printEnvVars(out)
+	return nil
+}
+
+func openAndListCookieDB(out io.Writer, cookiePath string) (*sql.DB, error) {
+	db, err := sql.Open("sqlite", cookiePath)
+	if err != nil {
+		fmt.Fprintf(out, "ERROR opening cookie DB: %v\n\n", err)
+		return nil, err
+	}
+	listCookieRows(out, db)
+	return db, nil
+}
+
+func listAndPrintKeyringItems(out io.Writer) []keyringItem {
+	items, err := listAllKeyringItems()
+	if err != nil {
+		fmt.Fprintf(out, "ERROR listing keyring items: %v\n\n", err)
+		return nil
+	}
+	printAllKeyringItems(out, items)
+	return items
+}
+
+func printAllKeyringItems(out io.Writer, items []keyringItem) {
+	for i, item := range items {
+		fmt.Fprintf(out, "Item %d: %s\n", i, item.path)
+		for k, v := range item.attrs {
+			fmt.Fprintf(out, "  attr %-35s = %q\n", k, v)
+		}
+		fmt.Fprintf(out, "  secret len=%d  hex=%s\n", len(item.secret), hex.EncodeToString(item.secret))
+		fmt.Fprintf(out, "  secret ASCII=%q\n\n", string(item.secret))
+	}
+}
+
+func printEnvVars(out io.Writer) {
+	fmt.Fprintf(out, "=== Environment ===\n")
+	for _, envVar := range []string{"XDG_SESSION_TYPE", "DBUS_SESSION_BUS_ADDRESS", "GNOME_KEYRING_CONTROL"} {
+		if v := os.Getenv(envVar); v != "" {
+			fmt.Fprintf(out, "%s=%s\n", envVar, v)
+		}
+	}
+}
+
+func tryAllDecryptions(out io.Writer, rawPw, encBlob []byte, allItems []keyringItem) {
 	fmt.Fprintf(out, "\n=== Decryption Attempts ===\n")
 	fmt.Fprintf(out, "Blob len=%d  prefix=%q\n\n", len(encBlob), string(encBlob[:3]))
 
@@ -102,11 +130,8 @@ func runDebugCookie(out io.Writer) error {
 	pbkdf2Key := pbkdf2.Key(rawPw, []byte("saltysalt"), 1, 16, sha1.New)
 	tryDecrypt(out, "PBKDF2(raw_pw, saltysalt, 1, IV=0x20)", pbkdf2Key, data, iv)
 	tryDecrypt(out, "PBKDF2(raw_pw, saltysalt, 1, IV=0x00)", pbkdf2Key, data, ivZero)
-	// Try with IV embedded in ciphertext (first 16 bytes of data are the IV).
 	if len(data) >= 32 {
-		embeddedIV := data[:16]
-		dataWithoutIV := data[16:]
-		tryDecrypt(out, "PBKDF2(raw_pw, saltysalt, 1, IV=data[0:16])", pbkdf2Key, dataWithoutIV, embeddedIV)
+		tryDecrypt(out, "PBKDF2(raw_pw, saltysalt, 1, IV=data[0:16])", pbkdf2Key, data[16:], data[:16])
 	}
 	if decodedKey != nil {
 		tryDecrypt(out, "direct_decoded_key (IV=0x20)", decodedKey, data, iv)
@@ -116,7 +141,10 @@ func runDebugCookie(out io.Writer) error {
 		}
 		tryDecrypt(out, "PBKDF2(decoded_key, saltysalt, 1, IV=0x20)", pbkdf2.Key(decodedKey, []byte("saltysalt"), 1, 16, sha1.New), data, iv)
 	}
-	// Try with each keyring item's secret.
+	tryDecryptKeyringItems(out, allItems, data, iv)
+}
+
+func tryDecryptKeyringItems(out io.Writer, allItems []keyringItem, data, iv []byte) {
 	for i, item := range allItems {
 		if len(item.secret) == 0 {
 			continue
@@ -131,14 +159,6 @@ func runDebugCookie(out io.Writer) error {
 			tryDecrypt(out, fmt.Sprintf("item%d(%s) direct_decoded (IV=0x20)", i, label), dec, data, iv)
 		}
 	}
-
-	fmt.Fprintf(out, "=== Environment ===\n")
-	for _, envVar := range []string{"XDG_SESSION_TYPE", "DBUS_SESSION_BUS_ADDRESS", "GNOME_KEYRING_CONTROL"} {
-		if v := os.Getenv(envVar); v != "" {
-			fmt.Fprintf(out, "%s=%s\n", envVar, v)
-		}
-	}
-	return nil
 }
 
 type keyringItem struct {
@@ -154,19 +174,38 @@ func listAllKeyringItems() ([]keyringItem, error) {
 	}
 	ss := conn.Object("org.freedesktop.secrets", "/org/freedesktop/secrets")
 
-	// Open a session first.
+	sessionPath, err := openKeyringSession(ss)
+	if err != nil {
+		return nil, err
+	}
+
+	allPaths, err := resolveAllKeyringPaths(conn, ss)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Printf("[debug] total keyring items: %d\n", len(allPaths))
+
+	var items []keyringItem
+	for _, p := range allPaths {
+		items = append(items, fetchKeyringItem(conn, sessionPath, p))
+	}
+	return items, nil
+}
+
+func openKeyringSession(ss dbus.BusObject) (dbus.ObjectPath, error) {
 	var sessionOutput dbus.Variant
 	var sessionPath dbus.ObjectPath
 	if err := ss.Call("org.freedesktop.Secret.Service.OpenSession", 0, "plain", dbus.MakeVariant("")).Store(&sessionOutput, &sessionPath); err != nil {
-		return nil, fmt.Errorf("open session: %w", err)
+		return "", fmt.Errorf("open session: %w", err)
 	}
+	return sessionPath, nil
+}
 
-	// Get ALL items from the default login collection.
+func resolveAllKeyringPaths(conn *dbus.Conn, ss dbus.BusObject) ([]dbus.ObjectPath, error) {
 	loginCollection := conn.Object("org.freedesktop.secrets", "/org/freedesktop/secrets/collection/login")
 	var itemsVariant dbus.Variant
 	if err := loginCollection.Call("org.freedesktop.DBus.Properties.Get", 0,
 		"org.freedesktop.Secret.Collection", "Items").Store(&itemsVariant); err != nil {
-		// Fallback: search for Slack items only
 		var unlocked, locked []dbus.ObjectPath
 		if err2 := ss.Call("org.freedesktop.Secret.Service.SearchItems", 0, map[string]string{"application": "Slack"}).Store(&unlocked, &locked); err2 != nil {
 			return nil, fmt.Errorf("GetItems and SearchItems both failed: %w / %v", err, err2)
@@ -175,31 +214,29 @@ func listAllKeyringItems() ([]keyringItem, error) {
 		itemsVariant = dbus.MakeVariant(append(unlocked, locked...))
 	}
 	allPaths, _ := itemsVariant.Value().([]dbus.ObjectPath)
-	fmt.Printf("[debug] total keyring items: %d\n", len(allPaths))
+	return allPaths, nil
+}
 
-	var items []keyringItem
-	for _, p := range allPaths {
-		item := conn.Object("org.freedesktop.secrets", p)
-		var attrs map[string]string
-		if err := item.Call("org.freedesktop.Secret.Item.GetAttributes", 0).Store(&attrs); err != nil {
-			attrs = map[string]string{"error": err.Error()}
-		}
-
-		var secret struct {
-			Session     dbus.ObjectPath
-			Parameters  []byte
-			Value       []byte
-			ContentType string
-		}
-		secretErr := item.Call("org.freedesktop.Secret.Item.GetSecret", 0, sessionPath).Store(&secret)
-		var secretVal []byte
-		if secretErr == nil {
-			secretVal = secret.Value
-		}
-
-		items = append(items, keyringItem{path: p, attrs: attrs, secret: secretVal})
+func fetchKeyringItem(conn *dbus.Conn, sessionPath dbus.ObjectPath, p dbus.ObjectPath) keyringItem {
+	item := conn.Object("org.freedesktop.secrets", p)
+	var attrs map[string]string
+	if err := item.Call("org.freedesktop.Secret.Item.GetAttributes", 0).Store(&attrs); err != nil {
+		attrs = map[string]string{"error": err.Error()}
 	}
-	return items, nil
+
+	var secret struct {
+		Session     dbus.ObjectPath
+		Parameters  []byte
+		Value       []byte
+		ContentType string
+	}
+	secretErr := item.Call("org.freedesktop.Secret.Item.GetSecret", 0, sessionPath).Store(&secret)
+	var secretVal []byte
+	if secretErr == nil {
+		secretVal = secret.Value
+	}
+
+	return keyringItem{path: p, attrs: attrs, secret: secretVal}
 }
 
 func listCookieRows(out io.Writer, db *sql.DB) {
@@ -283,41 +320,43 @@ func tryDecrypt(out io.Writer, name string, key, data, iv []byte) {
 	}
 	fmt.Fprintf(out, "plain[0:80] hex: %s\n", hex.EncodeToString(show))
 
-	// Full PKCS7 validation (check ALL pad bytes, not just last).
-	lastByte := plain[len(plain)-1]
-	padOK := false
-	if lastByte >= 1 && lastByte <= 16 {
-		padLen := int(lastByte)
-		padOK = true
-		for i := len(plain) - padLen; i < len(plain); i++ {
-			if plain[i] != lastByte {
-				padOK = false
-				break
-			}
-		}
-		if padOK {
-			unpadded := plain[:len(plain)-padLen]
-			end := len(unpadded)
-			if end > 120 {
-				end = 120
-			}
-			fmt.Fprintf(out, "PKCS7 VALID (pad=%d, unpadded=%d bytes)\n", padLen, len(unpadded))
-			fmt.Fprintf(out, "plaintext: %q\n", string(unpadded[:end]))
-			// Check if plaintext is printable ASCII.
-			printable := true
-			for _, b := range unpadded {
-				if b < 0x20 || b > 0x7e {
-					printable = false
-					break
-				}
-			}
-			fmt.Fprintf(out, "all printable ASCII: %v\n", printable)
-		}
-	}
-	if !padOK {
-		fmt.Fprintf(out, "PKCS7 INVALID (last_byte=0x%02x)\n", lastByte)
+	if !printPKCS7Result(out, plain) {
+		fmt.Fprintf(out, "PKCS7 INVALID (last_byte=0x%02x)\n", plain[len(plain)-1])
 	}
 	fmt.Fprintln(out)
+}
+
+// printPKCS7Result validates PKCS7 padding on plain, prints results to out,
+// and returns true if padding is valid.
+func printPKCS7Result(out io.Writer, plain []byte) bool {
+	lastByte := plain[len(plain)-1]
+	if lastByte < 1 || lastByte > 16 {
+		return false
+	}
+	padLen := int(lastByte)
+	for i := len(plain) - padLen; i < len(plain); i++ {
+		if plain[i] != lastByte {
+			return false
+		}
+	}
+	unpadded := plain[:len(plain)-padLen]
+	end := len(unpadded)
+	if end > 120 {
+		end = 120
+	}
+	fmt.Fprintf(out, "PKCS7 VALID (pad=%d, unpadded=%d bytes)\n", padLen, len(unpadded))
+	fmt.Fprintf(out, "plaintext: %q\n", string(unpadded[:end]))
+	fmt.Fprintf(out, "all printable ASCII: %v\n", isPrintableASCII(unpadded))
+	return true
+}
+
+func isPrintableASCII(b []byte) bool {
+	for _, c := range b {
+		if c < 0x20 || c > 0x7e {
+			return false
+		}
+	}
+	return true
 }
 
 func trimNullBytes(b []byte) []byte {
